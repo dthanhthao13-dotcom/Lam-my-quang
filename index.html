@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Đầu Bếp Tí Hon</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+
+/* Layout: one 3:2 game canvas centred on a warm dark kitchen-wood ground; everything is drawn inside it. */
+:root{
+  --ground:#2a1609; --frame:#5a2e12; --accent:#e8601c; --text:#ffe9c7; --muted:#d6a774;
+  --ui:'Baloo 2', 'Nunito', system-ui, sans-serif;
+  color-scheme:dark;
+}
+html,body{min-height:100%}
+body{
+  margin:0; background:var(--ground); color:var(--text); font-family:var(--ui);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+  box-sizing:border-box; min-height:100vh; min-height:100dvh;
+  padding-block:12px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+}
+.stage{
+  width:min(100%, 1200px, calc((100vh - 70px) * 1.5));
+  width:min(100%, 1200px, calc((100dvh - 70px) * 1.5));
+  max-width:100%; aspect-ratio:3/2; border-radius:10px; overflow:hidden;
+  box-shadow:0 0 0 3px var(--frame), 0 0 0 6px var(--accent), 0 18px 40px rgba(0,0,0,.45);
+}
+canvas{display:block; width:100%; height:100%; touch-action:none; outline:none}
+canvas:focus-visible{box-shadow:inset 0 0 0 4px #ffd36e}
+.note{margin:0; font-size:15px; color:var(--muted); text-align:center; letter-spacing:.02em; text-wrap:balance}
+</style>
+
+</head>
+<body>
+<div class="stage"><canvas id="game" width="960" height="640" tabindex="0" aria-label="Trò chơi Đầu Bếp Tí Hon: vào vai đầu bếp, kéo thả và thao tác để nấu mì Quảng qua 7 màn"></canvas></div>
+<p class="note">Kéo, thả, chạm và xoay để nấu · Mở đầu và 7 màn theo quy trình làm mì Quảng</p>
+
+<script>
+(() => {
+const W = 960, H = 640;
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FONT = '"Baloo 2", "Nunito", system-ui, sans-serif';
+const C = { cream:'#fff4dc', cream2:'#ffe6b8', border:'#a8521e', orange:'#e8601c', ink:'#3a1d0c', brown:'#6b3412',
+  green:'#43a82a', green2:'#7ed957', red:'#d6402a', gold:'#ffc83a', white:'#ffffff', water:'rgba(150,210,240,.8)' };
+
+const TITLES = ['Đi chợ','Sơ chế nguyên liệu','Làm sợi mì Quảng','Lọc thịt và thái','Ướp và xào nhân','Nấu nước dùng','Bày món vào tô','Hoàn thành'];
+const SHORT = ['Mở đầu: Đi chợ','1. Sơ chế','2. Làm sợi mì','3. Thái','4. Ướp, xào nhân','5. Nước dùng','6. Bày tô','7. Hoàn thành'];
+const FACTS = [
+  'Mì Quảng là đặc sản Quảng Nam – Đà Nẵng. Đi chợ mua gạo, gà nguyên con, tôm, trứng, rau sống, các loại hành, tỏi, nghệ, ớt và bánh tráng mè.',
+  'Rau sống phải rửa kỹ dưới vòi nước. Tôm bóc vỏ, bỏ đầu trước khi nấu. Rửa xong nhớ khoá vòi để tiết kiệm nước.',
+  'Gạo ngâm mềm được xay thành bột nước, tráng mỏng trên nồi hấp rồi cắt thành sợi to bản. Quét chút dầu để sợi không dính.',
+  'Lọc thịt gà: đùi và ức làm nhân, còn chân, cánh, khung xương để hầm nước dùng cho ngọt. Không bỏ phí phần nào!',
+  'Ướp gà, tôm với hành, tỏi, nghệ, nước mắm cho thấm. Phi dầu cho nóng rồi xào trên lửa vừa đến khi nhân săn lại, vàng thơm.',
+  'Hầm xương gà cho nước ngọt, hớt bọt cho nước trong, thêm hành, nêm nếm rồi đổ nhân vào. Rim nhỏ lửa giúp nước sánh lại, ngấm vào nhân: bí quyết để mì Quảng ít nước mà vẫn đậm đà.',
+  'Bày tô theo thứ tự: rau sống, sợi mì, nhân, trứng, rồi chan nước dùng xâm xấp mặt mì.',
+  'Khi ăn, rắc đậu phộng, vắt chanh, thêm ớt, bẻ bánh tráng và trộn đều. Chúc ngon miệng!'
+];
+
+/* ---------- assets ---------- */
+const ASSETS = ('title chuanbi intro1 intro2 intro3 intro4 intro5 to0 to1 to2 to3 to4 final bg_bonrua bg_bep bg_thot bg_ban '+
+ 'ba_point ba_cheer ba_stop tom_song tom_boc bat_bot soi_trang ro_rau hanh_tay hanh_la chao '+
+ 'dau_phong_gia hanh_la_thai chanh hanh_tim toi trung ot nghe ro_gao gao_ngam coi ga_song ga_thai ga_mieng to_rong '+
+ 'tay_cham tay_cam tay_dao tay_dua tay_xeng tay_va tay_xoe_r tay_rau tay_ca '+
+ 'ga_nghieng nuoc_hanh nhan_food gk_canhT gk_canhP gk_duiT gk_duiP gk_than gk_thanL gk_thanR gk_khung ghinho ds cuon ga_me ga_banh uc_to dui_ga canh_ga uc_nho chan_ga nhan_song va_nhan gio coi_base noi_hap banh_lop chao_trong chao_nhan noi0 noi1 noi2 noi3 me_ga bot vot_sach vot_day va_day va_rot lua1 lua2 lua3 '+
+ 'to_nhan r_ga1 r_ga2 r_ga3 r_tom1 lop_htim lop_htay tl1 tl2 tl4 me_giavi pot0 pot_hanh pot_nhan chau_trong chau_nuoc noi_ga p_ga3 p_tom3 noi_hanh noi_nhan thau thung_rac chan1 chan2 chan3 chan4 final_clean khay_trung p_tom1 p_ga1 p_ga2 p_ht1 p_ht2 p_htim final2 dua_doi ro_vo_tom bt_doi bt_manh bt_vun2 chanh_vat hanh_tay_thai hanh_thai3 ga_chin tom_chin1 tom_chin2 '+
+ 'tom_tay1 tom_tay2 tom_tay3 tom_bo_dau tom_boc_song dau_tom vo_tom ga_song2 ga_thai2 hanh_nguyen hanh_thai2 chen_hanh chen_nghe chen_toi dau_an bt_tay1 bt_tay2 bt_ro bt_vun ot_lat '+
+ 'muoi_lo hatnem_lo duong_lo cho bep_xao coi_trong to_uop banh_uot trung_vo trung_boc trung_cat bep1 bep2 bep3 gio nuoc_mam dau_phong banh_trang_nuong ro_gia xa_lach ngo2 hanh_tim2 '+
+ 'sua_hop ly_sua pho_mai bi_do nam hoa hoa_sen chuoi tao cam nho_qua dau_tay viet_quat xoai thanh_long dua_hau ca_chua ca_rot').split(' ');
+const IMG = {}; let loaded = 0;
+ASSETS.forEach(n => { const im = new Image(); im.onload = im.onerror = () => loaded++; im.src = 'a/' + n + '.webp'; IMG[n] = im; });
+const ready = n => IMG[n] && (IMG[n].tagName==='CANVAS' || (IMG[n].complete && IMG[n].naturalWidth > 0));
+const sh = (n,w) => ready(n) ? w*(IMG[n].naturalHeight||IMG[n].height)/(IMG[n].naturalWidth||IMG[n].width) : w*.7;
+function spr(n,x,y,w,o){
+  if(!ready(n)) return; o = o||{}; const h = sh(n,w);
+  ctx.save(); if(o.alpha!=null) ctx.globalAlpha *= o.alpha; ctx.translate(x,y); if(o.rot) ctx.rotate(o.rot);
+  ctx.drawImage(IMG[n], -(o.ax??.5)*w, -(o.ay??.5)*h, w, h); ctx.restore();
+}
+
+/* ---------- canvas sizing ---------- */
+function fit(){ const r = cv.getBoundingClientRect(); if(!r.width) return;
+  const px = Math.round(r.width*(window.devicePixelRatio||1)); const w = Math.min(2400, Math.max(480, px));
+  if(cv.width !== w){ cv.width = w; cv.height = Math.round(w*2/3); } }
+new ResizeObserver(fit).observe(cv); fit();
+
+/* ---------- draw helpers ---------- */
+const font = (s,wt) => (wt||700)+' '+s+'px '+FONT;
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function panel(x,y,w,h,r,fill,line,lw){ rr(x,y,w,h,r); ctx.fillStyle=fill; ctx.fill(); if(line){ ctx.lineWidth=lw||3; ctx.strokeStyle=line; ctx.stroke(); } }
+function T(s,x,y,size,col,al,wt){ ctx.font=font(size,wt); ctx.fillStyle=col||C.ink; ctx.textAlign=al||'left'; ctx.textBaseline='alphabetic'; ctx.fillText(s,x,y); }
+function TS(s,x,y,size,col,al,wt,sc){ ctx.save(); ctx.font=font(size,wt); ctx.textAlign=al||'left'; ctx.lineJoin='round'; ctx.lineWidth=Math.max(3,size/6); ctx.strokeStyle=sc||C.ink; ctx.strokeText(s,x,y); ctx.fillStyle=col; ctx.fillText(s,x,y); ctx.restore(); }
+function wrap(s,maxW,size,wt){ ctx.font=font(size,wt); const words=s.split(' '), out=[]; let ln='';
+  for(const w of words){ const t=ln?ln+' '+w:w; if(ctx.measureText(t).width>maxW && ln){ out.push(ln); ln=w; } else ln=t; } if(ln) out.push(ln); return out; }
+function ell(cx,cy,rx,ry,fill){ ctx.beginPath(); ctx.ellipse(cx,cy,Math.max(.1,rx),Math.max(.1,ry),0,0,Math.PI*2); ctx.fillStyle=fill; ctx.fill(); }
+function shadow(x,y,rx,ry){ ell(x,y,rx,ry,'rgba(60,25,5,.22)'); }
+function star(cx,cy,r,on){ ctx.beginPath(); for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rad=i%2?r*.48:r; ctx.lineTo(cx+Math.cos(a)*rad, cy+Math.sin(a)*rad); } ctx.closePath();
+  ctx.fillStyle=on?C.gold:'#e6d3b0'; ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=on?'#a85a0a':'#bfa680'; ctx.stroke(); }
+function tag(s,x,y){ ctx.font=font(15,700); const w=ctx.measureText(s).width+16; panel(x-w/2,y-12,w,22,11,'rgba(58,29,12,.86)'); T(s,x,y+4,15,C.cream,'center'); }
+function tintEll(cx,cy,rx,ry,col,a){ if(a<=0) return; ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.clip();
+  ctx.globalCompositeOperation='multiply'; ctx.globalAlpha=a; ctx.fillStyle=col; ctx.fillRect(cx-rx,cy-ry,rx*2,ry*2); ctx.restore(); }
+const lerp=(a,b,t)=>a+(b-a)*t, clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), rand=(a,b)=>a+Math.random()*(b-a);
+function mix(c1,c2,t){ t=clamp(t,0,1); const a=parseInt(c1.slice(1),16), b=parseInt(c2.slice(1),16);
+  const r=Math.round(lerp(a>>16,b>>16,t)), g=Math.round(lerp((a>>8)&255,(b>>8)&255,t)), bl=Math.round(lerp(a&255,b&255,t));
+  return '#'+((1<<24)|(r<<16)|(g<<8)|bl).toString(16).slice(1); }
+function flames(x0,x1,y,k){ if(k<=0) return; for(let x=x0;x<=x1;x+=13){ const h=(16+9*Math.sin(G.t*15+x*.9))*k;
+  ell(x,y,6,4,'rgba(70,130,255,.9)'); ell(x,y-h/2,6.5,h/2,'rgba(255,128,24,.92)'); ell(x,y-h/3,3.5,h/3,'rgba(255,224,90,.95)'); } }
+function foam(x,y){ [[0,0,10],[-11,3,7],[11,2,8],[-4,-6,6],[6,-5,6]].forEach(([a,b,r])=>{ ell(x+a,y+b,r+1.5,r*.8+1.5,'rgba(150,120,80,.5)'); ell(x+a,y+b,r,r*.8,'#fffaf0'); }); }
+
+function gasFlame(x,y,w,k){ if(!k) return; const i=1+((G.t*12)|0)%3, n='lua'+i; if(!ready(n)) return;
+  const h=sh(n,w)*(1+.12*Math.sin(G.t*23)+.06*Math.sin(G.t*37)); ctx.save(); ctx.globalAlpha=Math.min(1,k)*(.82+.18*Math.sin(G.t*17)); ctx.globalCompositeOperation='lighter';
+  ctx.drawImage(IMG[n],x-w/2,y-h*.85,w,h); ctx.restore(); }
+function gasGlow(heat){ const t=G.t; ctx.save(); ctx.globalCompositeOperation='lighter';
+  for(let x=300;x<=670;x+=22){ const h=(12+8*Math.sin(t*16+x*.7))*(.6+heat); ctx.globalAlpha=.35+.25*Math.sin(t*20+x);
+    ell(x,612-h/2,9,h/2,'rgb(255,120,20)'); ell(x,612-h/3,4,h/3,'rgb(255,220,90)'); } ctx.restore(); }
+function flash(img,x,y,w){ G.flash={img,x,y,w,t:0}; }
+function fly(img,x0,y0,x1,y1,w,cb){ (G.fly=G.fly||[]).push({img,x0,y0,x1,y1,w,cb,t:0}); }
+function broth(k,ripple){ if(k<=0) return; ctx.save(); ctx.beginPath(); ctx.ellipse(485,412,176,82,0,0,Math.PI*2); ctx.clip();
+  const rx=95+81*k, ry=36+44*k, y=448-36*k; ctx.globalCompositeOperation='multiply'; ctx.globalAlpha=.5+k*.4; ell(485,y,rx,ry,'#e39a3c'); ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=.35*k; ctx.strokeStyle='#f0b050'; ctx.lineWidth=10; ctx.beginPath(); ctx.ellipse(485,y,rx-6,ry-5,0,0,Math.PI*2); ctx.stroke();
+  if(ripple){ ctx.globalAlpha=.7; for(let r=0;r<2;r++){ const ph=(G.t*1.5+r/2)%1; ctx.strokeStyle=`rgba(255,235,180,${1-ph})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.ellipse(488,y-6,10+ph*rx*.6,4+ph*ry*.5,0,0,Math.PI*2); ctx.stroke(); } }
+  ctx.restore(); }
+function plate(x,y,w){ const rx=w/2, ry=w*.2; ell(x,y+5,rx+3,ry+3,'rgba(60,25,5,.28)'); ell(x,y,rx,ry,'#2f5e9e'); ell(x,y-1,rx-3,ry-2,'#fbfaf6');
+  ctx.save(); ctx.strokeStyle='#3d72b8'; ctx.lineWidth=2.5; ctx.setLineDash([7,5]); ctx.beginPath(); ctx.ellipse(x,y-1,rx-9,ry-6,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+  ell(x,y+1,rx*.7,ry*.62,'#eceae2'); ell(x-rx*.2,y-ry*.25,rx*.25,ry*.15,'rgba(255,255,255,.7)'); }
+/* ---------- composite drawers ---------- */
+function nhanWok(x,y,w,cook){
+  spr('chao',x,y,w); const h=sh('chao',w), cx=x, cy=y-h*.12, rx=w*.34, ry=h*.22;
+  ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.clip();
+  [[-.17,.02,.17],[.06,.06,.17],[.2,-.03,.15],[-.02,-.07,.14]].forEach(([a,b,s])=>spr('ga_mieng',cx+a*w,cy+b*w,s*w));
+  [[-.08,-.01,.2],[.13,.02,.19]].forEach(([a,b,s])=>spr('tom_boc',cx+a*w,cy+b*w,s*w));
+  ctx.restore(); tintEll(cx,cy,rx,ry,mix('#f7cf55','#dd8a2a',cook),.55+cook*.25);
+}
+function bowlFill(it,L){
+  const w=it.w, h=sh('to_rong',w), cx=it.x, cy=it.y-h*.17, rx=w*.43, ry=h*.22, b=L.f.bowl||{};
+  if(!Object.keys(b).length) return;
+  ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.clip(); const r=(L.f.mix||0)*5;
+  const P=(a,d)=>[cx+Math.cos(a+r)*d*rx, cy+Math.sin(a+r)*d*ry];
+  if(b.ga){ spr('ga_thai2',cx-rx*.42,cy-ry*.05,w*.5,{rot:-.15+r*.05}); spr('ga_thai2',cx+rx*.38,cy+ry*.1,w*.48,{rot:.3+r*.05}); spr('ga_thai2',cx,cy-ry*.35,w*.44,{rot:1.4}); }
+  if(b.tom){ spr('tom_boc_song',cx+rx*.05,cy+ry*.15,w*.5,{rot:r*.05}); spr('tom_boc_song',cx-rx*.35,cy+ry*.4,w*.38,{rot:.4}); spr('tom_boc_song',cx+rx*.45,cy-ry*.3,w*.36,{rot:-.5}); }
+  if(b.hanh_tim) for(let i=0;i<14;i++){ const [x,y]=P(i*.9,.2+(i%4)*.18); ell(x,y,4,3,'#a5507f'); }
+  if(b.toi) for(let i=0;i<12;i++){ const [x,y]=P(i*1.1+.4,.15+(i%3)*.25); ell(x,y,3.5,3,'#f6eedc'); }
+  ctx.restore();
+  if(b.nuoc_mam) tintEll(cx,cy,rx,ry,'#c98a52',.25);
+  if(b.nghe) tintEll(cx,cy,rx,ry,'#f2b51c',.35+(L.f.mix||0)*.35);
+}
+
+/* ---------- game state ---------- */
+const G = { scene:'loading', lvl:0, mistakes:[0,0,0,0,0,0,0,0], level:null, toasts:[], parts:[],
+  ptr:{x:480,y:320,down:false,inside:false}, mouse:false, drag:null, stir:null, sw:null, sound:true, t:0, card:null, btns:[], shake:0, face:'ba_point', faceT:0 };
+const cur = L => L.steps[L.si];
+const SCENE_BG = new Set(['to_nhan','noi_hanh','noi_nhan','final_clean','final2','chuanbi','to0','to1','to2','to3','to4','final','bep_xao','noi0','noi1','noi2','noi3']);
+const sc = L => SCENE_BG.has(L.bg);
+const fitW = (n,mw,mh) => { const r = ready(n)? IMG[n].naturalWidth/IMG[n].naturalHeight : 1.3; return Math.min(mw, mh*r); };
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.random()*(i+1)|0; [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function mk(id,img,x,y,w,o){ return Object.assign({id,img,x,y,hx:x,hy:y,w,vis:true,lock:0,label:''},o||{}); }
+const itm = (L,id) => L.items.find(i=>i.id===id);
+function inZ(z,p){ if(!z) return false;
+  if(z.rx!=null){ const dx=(p.x-z.x)/z.rx, dy=(p.y-z.y)/z.ry; return dx*dx+dy*dy<=1; }
+  if(z.r!=null) return Math.hypot(p.x-z.x,p.y-z.y)<=z.r;
+  return p.x>=z.x && p.x<=z.x+z.w && p.y>=z.y && p.y<=z.y+z.h; }
+const zc = z => z.w!=null ? {x:z.x+z.w/2, y:z.y+z.h/2} : {x:z.x,y:z.y};
+function itemBox(it){ if(it.ghost) return it.hit; if(it.anchor&&G.drag?.it!==it){ const h=sh(it.img,it.w); return {x:it.x-it.w*.5,y:it.y-h*.5,w:it.w,h:h}; } const h=sh(it.img,it.w); return {x:it.x-it.w*.42, y:it.y-h*.42, w:it.w*.84, h:h*.84}; }
+
+/* ---------- effects & sound ---------- */
+function burst(x,y,cols,n,sz){ n=reduce?Math.ceil(n/3):n; for(let i=0;i<n;i++) G.parts.push({x,y,vx:rand(-130,130),vy:rand(-200,-40),g:420,life:.8,max:.8,c:cols[i%cols.length],s:sz||5}); }
+function steam(x,y,spread){ if(reduce&&Math.random()<.6) return; G.parts.push({x:x+rand(-spread,spread),y,vx:rand(-8,8),vy:-rand(30,55),g:0,life:1.6,max:1.6,c:'#ffffff',s:rand(8,16),soft:true}); }
+function hearts(x,y){ for(let i=0;i<8;i++) G.parts.push({x:x+rand(-60,60),y:y+rand(-20,20),vx:rand(-20,20),vy:-rand(40,90),g:0,life:1.6,max:1.6,c:'#ff5d7a',s:12,heart:true}); }
+function toast(msg,kind){ G.toasts.push({msg,kind,t:0}); while(G.toasts.length>2) G.toasts.shift(); }
+function face(n,t){ G.face=n; G.faceT=t||1.4; }
+let AC=null;
+function audioInit(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC&&AC.state==='suspended') AC.resume(); }
+function beep(f,d,type,v,when){ if(!AC||!G.sound) return; const t=AC.currentTime+(when||0); const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'triangle'; o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(v||.07,t); g.gain.exponentialRampToValueAtTime(.0001,t+d); o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+d+.02); }
+let NB=null; const LOOPS={}; const LCFG={water:['bandpass',1100,.7,.16],sizzle:['highpass',3200,.7,.1],boil:['lowpass',420,1,.22],grind:['lowpass',180,1,.28]};
+function loopGain(name){ if(!AC) return null; if(LOOPS[name]) return LOOPS[name];
+  if(!NB){ NB=AC.createBuffer(1,AC.sampleRate*2,AC.sampleRate); const d=NB.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+  const src=AC.createBufferSource(); src.buffer=NB; src.loop=true; const [type,f,q]=LCFG[name]; const fl=AC.createBiquadFilter(); fl.type=type; fl.frequency.value=f; fl.Q.value=q;
+  const g=AC.createGain(); g.gain.value=0; src.connect(fl); fl.connect(g); g.connect(AC.destination); src.start(); LOOPS[name]=g; return g; }
+function updateLoops(){ if(!AC) return; const L=G.level; const want=(G.sound&&G.scene==='play'&&!G.card&&L&&L.snd)?L.snd(L):{};
+  for(const k in LCFG){ const v=(want[k]||0)*LCFG[k][3]*(k==='sizzle'?(.6+.4*Math.random()):1); if(!v&&!LOOPS[k]) continue; const g=loopGain(k); if(g) g.gain.setTargetAtTime(v,AC.currentTime,.08); } }
+function sfx(k){
+  if(k==='good'){ beep(660,.09); beep(990,.14,'triangle',.07,.08); }
+  else if(k==='bad'){ beep(190,.28,'sawtooth',.05); }
+  else if(k==='tap'){ beep(480,.06,'triangle',.06); }
+  else if(k==='pick'){ beep(600,.05,'sine',.08); }
+  else if(k==='chop'){ beep(260,.05,'square',.04); beep(130,.07,'triangle',.07,.03); }
+  else if(k==='win'){ [523,659,784,1047].forEach((f,i)=>beep(f,.16,'triangle',.07,i*.11)); }
+}
+
+/* ---------- step flow ---------- */
+function mistake(L,msg){ G.mistakes[L.n]++; toast(msg,'bad'); sfx('bad'); face('ba_stop',1.8); if(!reduce) G.shake=.25; }
+function startStep(L,i){
+  L.adv=0;
+  if(i>=L.steps.length){ L.endT=2.2; sfx('win'); burst(480,300,[C.gold,'#ff9a3a',C.cream],36,7); toast(L.n===7?'Tô mì Quảng hoàn hảo!':'Hoàn thành rồi! Cùng ngắm thành quả nào.','good'); return; }
+  L.si=i; const s=L.steps[i];
+  Object.assign(s,{p:0,done:false,got:new Set(),v:s.v0||0,holding:false,block:false,acc:0,turnK:0,fix:null}); L.stepT=0; G.auto=null;
+  if(s.bg) L.bg=s.bg;
+  s.onStart&&s.onStart(L);
+}
+function finish(L,silent){ const s=cur(L); s.done=true; s.onDone&&s.onDone(L); if(!silent) sfx('good'); face('ba_cheer',1.2); L.adv=.65; }
+function isLater(L,id){ return L.steps.some((st,j)=>j>L.si&&st.type==='drop'&&st.need.includes(id)); }
+function dropItem(it){
+  const L=G.level, s=cur(L), p={x:G.ptr.x,y:G.ptr.y}; let zn=null;
+  if(L.preDrop&&L.preDrop(L,it,p)) return;
+  if(s&&s.type==='skim'&&it.id==='vot'){
+    if(L.f.full&&inZ(L.zones.batbo,p)) skimDump(L,it);
+    else if(L.f.full) toast('Đổ bọt vào bát bỏ bọt nhé!','info');
+    it.ret=true; return; }
+  if(s&&s.zone&&inZ(L.zones[s.zone],p)) zn=s.zone;
+  else for(const k in L.zones){ if(inZ(L.zones[k],p)){ zn=k; break; } }
+  if(zn && s && !s.done && L.adv<=0 && s.type==='drop' && s.zone===zn && s.need.includes(it.id) && !s.got.has(it.id)){
+    const msg=s.check&&s.check(L,it); if(msg){ toast(msg,'info'); if(!it.ghost) it.ret=true; return; }
+    s.got.add(it.id); if(!it.ghost && !s.keep) it.vis=false; sfx('good'); burst(p.x,p.y,[C.gold,C.cream,'#ff9a3a'],12);
+    s.onEach&&s.onEach(L,it); if(s.any||s.got.size>=s.need.length) finish(L,true);
+    if(!it.ghost && it.vis) it.ret=true; return;
+  }
+  if(zn && it.bad && s && s.zone===zn){ mistake(L,it.bad); if(!it.ghost) it.ret=true; return; }
+  if(zn){
+    if(L.busyMsg) toast(L.busyMsg,'info');
+    else if(isLater(L,it.id)) mistake(L,'Chưa đến bước này! Làm theo lời bà nhé.');
+    else if(s && s.type==='drop' && s.need.includes(it.id)) toast('Chưa đúng chỗ. Thả vào vùng có viền vàng nhé.','info');
+  }
+  if(!it.ghost) it.ret=true;
+}
+function judge(L,s){
+  if(s.p>=s.good[0]&&s.p<=s.good[1]) finish(L);
+  else if(s.p<s.good[0]){ mistake(L,s.early); s.p=0; } else { mistake(L,s.late); s.p=0; }
+}
+
+/* ========== LEVELS ========== */
+const LV = [];
+const ghost=(id,hit,drag,dw,label,o)=>Object.assign(mk(id,drag,hit.x+hit.w/2,hit.y+hit.h/2,dw,{ghost:true,hit,label,vis:false}),o||{});
+
+/* Mở đầu — Đi chợ */
+const CORE = [['gao','ro_gao','Gạo'],['ga','ga_song2','Thịt gà'],['tom','tom_song','Tôm'],['trung','trung_vo','Trứng'],['nghe','nghe','Nghệ']];
+const EXTRA = [['dauphong','dau_phong','Đậu phộng'],['banhtrang','banh_trang_nuong','Bánh tráng'],['xalach','xa_lach','Xà lách'],['ngo','ngo2','Rau ngò'],
+  ['hanhtim','hanh_tim2','Hành tím'],['toi','toi','Tỏi'],['ot','ot','Ớt'],['chanh','chanh','Chanh'],['gia','ro_gia','Giá'],['hanhla','hanh_nguyen','Hành lá']];
+const FRUIT = n => n+' là trái cây tráng miệng, không nấu mì Quảng.';
+const BAD = [['sua_hop','Sữa hộp','Mì Quảng không nấu với sữa!'],['ly_sua','Ly sữa','Sữa không có trong mì Quảng!'],['pho_mai','Phô mai','Phô mai là món Tây, không có trong mì Quảng.'],
+  ['bi_do','Bí đỏ','Bí đỏ dùng nấu canh, không cho vào mì Quảng.'],['nam','Nấm','Mì Quảng gà không dùng nấm.'],['hoa','Bó hoa','Hoa để cắm bình, không phải đồ ăn!'],
+  ['hoa_sen','Hoa sen','Hoa sen để cắm bình, không nấu mì Quảng.'],['chuoi','Chuối','Quả chuối là trái cây. Mì Quảng dùng bắp chuối bào mỏng cơ!'],
+  ['tao','Táo',FRUIT('Táo')],['cam','Cam',FRUIT('Cam')],['nho_qua','Nho',FRUIT('Nho')],['dau_tay','Dâu tây',FRUIT('Dâu tây')],['viet_quat','Việt quất',FRUIT('Việt quất')],
+  ['xoai','Xoài',FRUIT('Xoài')],['thanh_long','Thanh long',FRUIT('Thanh long')],['dua_hau','Dưa hấu',FRUIT('Dưa hấu')],
+  ['ca_chua','Cà chua','Công thức mì Quảng gà hôm nay không dùng cà chua.'],['ca_rot','Cà rốt','Mì Quảng không dùng cà rốt.']];
+const SLOTS=[[655,186,58,50],[713,186,58,50],[771,186,58,50],[829,186,58,50],[890,186,58,50],
+  [638,266,60,54],[700,266,60,54],[762,266,60,54],[824,266,60,54],[890,266,60,54],
+  [616,346,62,56],[680,346,62,56],[744,346,62,56],[808,346,62,56],[874,346,62,56],
+  [418,304,64,50],[480,300,64,50],[542,304,64,50],[416,426,66,52],[480,422,66,52],[544,426,66,52],
+  [50,372,74,58],[125,372,74,58],[76,312,70,52],[836,440,72,56],[910,440,72,56]];
+const PILE=[[650,446],[690,442],[730,442],[766,448],[668,458],[710,456],[750,460],[690,436],[728,434],[700,466],[740,470],[668,440]];
+const NEED=[['gao','ro_gao','Gạo'],['ga','ga_nghieng','Gà nguyên con'],['tom','tom_song','Tôm'],['trung','trung_vo','Trứng gà'],['rau','ro_rau','Rau sống'],['giavi','me_giavi','Mẹt gia vị: hành lá, hành tím, hành tây, tỏi, nghệ, ớt'],['banhtrang','banh_trang_nuong','Bánh tráng mè']];
+LV.push(()=>{
+  const bad=shuffle(BAD.slice()).slice(0,SLOTS.length-NEED.length);
+  const pool=shuffle([...NEED.map(g=>({id:g[0],img:g[1],label:g[2]})),...bad.map(b=>({id:'x_'+b[0],img:b[0],label:b[1],bad:b[2]}))]);
+  const items=pool.map((o,i)=>{ const [x,y,mw,mh]=SLOTS[i]; return mk(o.id,o.img,x,y,fitW(o.img,mw*1.15,mh*1.15)*(o.id==='ga'?.85:o.id==='giavi'?1.45:1),{label:o.label,bad:o.bad,vis:false,base:o.id==='ga'?'gio':null}); });
+  const checkout=L=>{ const B=L.f.basket, bads=B.filter(b=>b.it.bad);
+    if(!B.length){ toast('Giỏ còn trống! Lấy đồ trên sạp bỏ vào giỏ nhé.','info'); return; }
+    if(bads.length){ mistake(L,bads[0].it.bad+(bads.length>1?' Bà trả lại '+bads.length+' món không cần.':''));
+      bads.forEach(b=>{ b.it.vis=true; b.it.x=698; b.it.y=440; b.it.ret=true; }); L.f.basket=B.filter(b=>!b.it.bad); return; }
+    if(B.length<NEED.length){ mistake(L,'Còn thiếu vài món! Nhớ lại danh sách nhé.'); return; }
+    finish(L); };
+  return { n:0, bg:'ghinho', intro:'chuanbi', items, hoverLabels:true, f:{basket:[],mem:5,review:1,show:0},
+    zones:{ gio:{x:698,y:466,rx:105,ry:55} },
+    steps:[{type:'idle',hint:'Lấy đủ các món trong danh sách bỏ vào giỏ, rồi bấm TÍNH TIỀN.'}],
+    hideUI:L=>L.f.mem>0||L.f.show>0,
+    preDown(L,p){ if(L.f.mem>0||L.f.show>0) return true;
+      if(L.f.review>0&&inZ({x:20,y:540,w:130,h:90},p)){ L.f.review=0; L.f.show=5; sfx('pick'); return true; } return false; },
+    preDrop(L,it,p){ if(!inZ(L.zones.gio,p)) return false; it.vis=false; L.f.basket.push({it,t:0}); sfx('pick'); return true; },
+    under(L){ if(L.bg==='ghinho') return;
+      L.items.forEach(it=>{ if(it.base) spr(it.base,it.hx,it.hy+8,it.w*1.3); });
+      L.f.basket.forEach((b,i)=>{ const [x,y]=PILE[i%PILE.length], e=Math.min(1,b.t/.35), bounce=e<1?-(1-e)*90:Math.sin(Math.min(1,(b.t-.35)/.25)*Math.PI)*-6;
+        spr(b.it.img,x,y+bounce-(i>=PILE.length?12:0),fitW(b.it.img,84,62)); }); },
+    over(L){ const f=L.f;
+      if(L.bg==='ghinho'){ spr('ds',268,322,486);
+        const c={x:571,y:236}; ell(c.x,c.y,50,50,'#fff7e8'); const n=Math.max(1,Math.ceil(f.mem)); TS(String(n),c.x,c.y+25,74,'#d6402a','center',800,'#fff7e8');
+        return; }
+      tag('Giỏ đi chợ',698,532);
+      if(!G.card&&cur(L)&&!cur(L).done){ spr('cuon',85,575,120,{alpha:f.review?1:.35}); tag(f.review?'Xem lại danh sách (1 lần)':'Đã xem lại',85,618);
+        button(790,560,160,54,'TÍNH TIỀN',()=>checkout(L)); }
+      if(f.show>0){ ctx.fillStyle='rgba(30,14,4,.55)'; ctx.fillRect(0,0,W,H); spr('ds',480,322,486); pill('Còn '+Math.ceil(f.show)+' giây',480,620); } },
+    tick(L,dt){ const f=L.f; f.basket.forEach(b=>b.t+=dt);
+      if(G.card) return;
+      if(f.mem>0){ const prev=Math.ceil(f.mem); f.mem-=dt; if(Math.ceil(f.mem)!==prev&&f.mem>0) sfx('tap');
+        if(f.mem<=0){ L.bg='cho'; L.items.forEach(i=>i.vis=true); toast('Hết giờ! Đi chợ thôi.','info'); } }
+      if(f.show>0) f.show-=dt; }
+  };
+});
+
+/* 1 — Sơ chế nguyên liệu (bồn rửa) */
+function waterStream(L,x,y0,y1){
+  const f=L.f; if(f.wHead<=0 || f.wTail>=1) return;
+  const top=y0+(y1-y0)*f.wTail, bot=y0+(y1-y0)*f.wHead; if(bot<=top) return;
+  const g=ctx.createLinearGradient(x-9,0,x+9,0); g.addColorStop(0,'rgba(120,190,230,.55)'); g.addColorStop(.35,'rgba(225,245,255,.95)'); g.addColorStop(.7,'rgba(150,210,240,.85)'); g.addColorStop(1,'rgba(100,170,215,.55)');
+  for(let y=top;y<bot;y+=4){ const w=10+3*Math.sin(G.t*24+y*.3)+(y-y0)*.012; ctx.fillStyle=g; ctx.fillRect(x-w/2,y,w,4.5); }
+  ctx.fillStyle='rgba(255,255,255,.9)'; for(let k=0;k<5;k++){ const yy=top+((G.t*420+k*70)%(Math.max(1,bot-top))); ctx.fillRect(x-2,yy,3,14); }
+  if(f.wHead>=1){ const by=y1; for(let r=0;r<3;r++){ const ph=(G.t*1.6+r/3)%1; ctx.strokeStyle=`rgba(225,245,255,${.7*(1-ph)})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.ellipse(x-12,by+4,10+ph*45,3+ph*13,0,0,Math.PI*2); ctx.stroke(); }
+    ell(x,by,16,6,'rgba(235,250,255,.85)'); }
+}
+LV.push(()=>{
+  const items=[ mk('rau','ro_rau',130,552,180,{label:'Rau sống',st:'loose'}), mk('ga','ga_nghieng',370,560,175,{label:'Gà nguyên con'}), mk('tom','tom_song',610,560,185,{label:'Tôm'}) ];
+  const shelf=(L,id,x,w,plate)=>{ const it=itm(L,id); it.hx=x; it.hy=232; it.w=w; it.ret=true; it.label=''; it.lock=99; it.wet=0; it.inBasin=0; it.plate=plate; L.f.washed.add(id); };
+  const drops=(x,y,w)=>{ for(let i=0;i<9;i++){ const a=i*2.1+G.t*2, r=w*.3*(.4+(i%3)*.25); ell(x+Math.cos(a)*r, y+Math.sin(a)*r*.5-8, 4, 5, 'rgba(190,230,255,.9)'); ell(x+Math.cos(a)*r-1, y+Math.sin(a)*r*.5-10, 1.5, 2, '#fff'); } };
+  const ACT={
+    rau:()=>[{type:'stir',hints:['Rửa rau: xoay tay trong chậu để rửa, vòng 1/2.','Xoay thêm vòng 2/2, rồi vớt rau ra rổ.'],zone:'chau',turns:2,tool:'tay_xoe_r',
+      onTurn:L=>{ itm(L,'rau').st='ro'; }, onDone:L=>shelf(L,'rau',318,175,0)}],
+    ga:()=>[{type:'stir',hints:['Rửa gà: xoay tay trong chậu để chà sạch con gà, vòng 1/2.','Xoay thêm vòng 2/2 để tráng lại cho sạch.'],zone:'chau',turns:2,tool:'tay_xoe_r',
+      onTurn:L=>{ itm(L,'ga').wet=1; }, onDone:L=>shelf(L,'ga',488,150,1)}],
+    tom:()=>[{type:'tap',hints:['Sơ chế tôm: chạm vào tôm trong chậu để bẻ đầu (lần 1/3).','Chạm vào tôm để bóc vỏ (lần 2/3).','Chạm vào tôm để rửa sạch (lần 3/3).'],zone:'chau',count:3,
+      onTap:(L,n)=>{ const t=itm(L,'tom');
+        if(n===1){ flash('tom_tay1',650,380,230); t.img='tom_bo_dau'; t.w=180; L.f.heads=1; burst(640,400,['#9fb0b4','#e07a50'],12); }
+        if(n===2){ flash('tom_tay2',650,380,215); t.img='tom_boc_song'; t.w=160; L.f.heads=0; L.items.push(mk('rac','ro_vo_tom',330,482,125,{label:'Đầu, vỏ tôm'})); burst(640,400,['#c9d4d6','#f0b090'],12); }
+        if(n===3){ flash('tom_tay3',650,380,180); t.wet=1; burst(640,395,['#bfe6fb','#ffffff'],18); } },
+      onDone:L=>shelf(L,'tom',642,125,1)}]
+  };
+  const left=(L,skip)=>['rau','ga','tom'].filter(id=>!L.f.washed.has(id)&&id!==skip);
+  const hub=need=>({type:'drop',any:true,hint:'Rửa nguyên liệu: kéo món nào vào bồn rửa trước cũng được.',need,zone:'bon',keep:true,
+    check:L=>L.f.water?null:'Bồn chưa có nước. Mở vòi nước trước đã nhé!',
+    onEach:(L,it)=>{ it.hx=640; it.hy=392; it.inBasin=1; it.label=''; if(it.id==='rau') it.wet=1; const rest=left(L,it.id);
+      L.steps.splice(L.si+1,0,...ACT[it.id](), rest.length?hub(rest):{type:'idle',hint:'Rửa xong hết rồi! Bấm XONG để sang màn tiếp.'}); }});
+  return { n:1, bg:'bg_bonrua', items, busyMsg:'Rửa xong món đang rửa đã nhé!', f:{water:0,wHead:0,wTail:0,heads:0,shells:0,washed:new Set(),remind:0},
+    zones:{ voi:{x:690,y:130,w:200,h:270}, bon:{x:250,y:372,w:640,h:145}, chau:{x:640,y:405,r:125} },
+    snd:L=>({water:L.f.wHead>0&&L.f.wTail<1?(G.stir?1:.7):0}),
+    steps:[hub(['rau','ga','tom'])],
+    hintText:(L,s)=>{ if(s.type!=='idle') return null; const r=itm(L,'rac'); if(L.f.remindRac&&r&&r.vis) return 'Kéo rổ đầu, vỏ tôm bỏ vào thùng rác hữu cơ.'; return L.f.remind&&L.f.water?'Khoá vòi nước lại rồi bấm XONG nhé.':null; },
+    preDown(L,p){ if(inZ(L.zones.voi,p)){ L.f.water=!L.f.water; if(L.f.water){ L.f.wHead=0; L.f.wTail=0; } sfx('tap'); return true; } return false; },
+    under(L){ const f=L.f;
+      shadow(640,512,150,12); spr('chau_trong',640,430,300);
+      if(f.basin>0){ const k=f.basin; spr('chau_nuoc',640,409+(1-k)*22,250*(.55+.45*k),{alpha:Math.min(1,k*1.5)}); ctx.save(); ctx.beginPath(); ctx.ellipse(640,409,125,35,0,0,Math.PI*2); ctx.clip();
+        for(let r=0;r<2;r++){ const ph=(G.t*1.2+r/2)%1; ctx.strokeStyle=`rgba(235,250,255,${.6*(1-ph)*k})`; ctx.lineWidth=2; ctx.beginPath(); ctx.ellipse(716,410,16+ph*110,5+ph*28,0,0,Math.PI*2); ctx.stroke(); } ctx.restore(); }
+      tag('Thau rửa',640,535);
+      waterStream(L,716,226,409);
+      if(f.heads) spr('dau_tom',330,478,115,{rot:-.1});
+      const bx=905,by=422; shadow(bx,by+126,60,10); spr('thung_rac',bx,by,119);
+
+
+      panel(bx-40,by+64,80,20,6,'#fff6e0','#244a22',2); T('Rác hữu cơ',bx,by+79,12,'#2f5e1f','center',800); },
+    drawItem(L,it){ if(!(it.inBasin&&!it.ret&&it.lock<99&&G.drag?.it!==it)) return this.drawRaw(L,it);
+      if(!this.drawRaw(L,it)) spr(it.img,it.x,it.y,it.w,{alpha:it.alpha});
+      ctx.save(); ctx.beginPath(); ctx.ellipse(640,409,125,35,0,0,Math.PI*2); ctx.clip(); if(L.f.basin>.05) spr('chau_nuoc',640,409+(1-L.f.basin)*22,250*(.55+.45*L.f.basin),{alpha:.45*L.f.basin});
+      for(let r=0;r<2;r++){ const ph=(G.t*1.1+r/2)%1; ctx.strokeStyle=`rgba(235,250,255,${.55*(1-ph)})`; ctx.lineWidth=2; ctx.beginPath(); ctx.ellipse(640,412,30+ph*90,8+ph*22,0,0,Math.PI*2); ctx.stroke(); }
+      ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.rect(480,409,330,130); ctx.moveTo(765,409); ctx.ellipse(640,409,125,35,0,0,Math.PI); ctx.closePath(); ctx.clip('evenodd'); spr('chau_trong',640,430,300); ctx.restore();
+      return true; },
+    drawRaw(L,it){
+      if(it.plate&&!it.ret){ plate(it.x,it.y+18,it.w*1.25); spr(it.img,it.x,it.y-2,it.w*.9); return true; }
+      if(!it.plate&&it.lock===99&&it.id==='rau'&&!it.ret){ shadow(it.x,it.y+48,it.w*.45,10); spr('ro_rau',it.x,it.y,it.w); return true; }
+      if(it.id==='rau' && it.st==='loose'){ const h=sh('xa_lach',it.w*.62); shadow(it.x,it.y+h*.42,it.w*.42,h*.1);
+        const sw=G.stir?Math.sin(G.t*14)*.08:0;
+        spr('xa_lach',it.x-it.w*.16,it.y,it.w*.6,{rot:sw}); spr('ngo2',it.x+it.w*.2,it.y-4,it.w*.5,{rot:-sw});
+        if(it.wet) drops(it.x,it.y,it.w); return true; }
+      if(it.wet && it.lock<99){ spr(it.img,it.x,it.y,it.w,{rot:G.stir?Math.sin(G.t*14)*.05:0}); drops(it.x,it.y,it.w); return true; }
+      return false; },
+    over(L){ const s=cur(L); if(s&&s.type==='idle'&&!s.done&&!G.card) button(760,560,170,56,'XONG ✓',()=>{
+        const rac=itm(L,'rac'); if(rac&&rac.vis){ L.f.remindRac=1; mistake(L,'Bồn còn vỏ tôm kìa! Bỏ vào thùng rác cho bếp sạch sẽ nhé.'); return; }
+        if(L.f.water){ L.f.remind=1; mistake(L,'Ơ kìa, vòi nước vẫn đang chảy! Tắt nước đi để tiết kiệm nhé.'); } else finish(L); }); },
+    preDrop(L,it,p){ if(it.id!=='rac') return false; if(inZ({x:840,y:330,w:125,h:190},p)){ it.vis=false; sfx('good'); burst(905,450,['#7cc04a','#ffffff'],12); toast('Bếp sạch sẽ rồi!','good'); } else it.ret=true; return true; },
+    tick(L,dt){ const f=L.f;
+      f.basin=clamp((f.basin||0)+(f.wHead>=1&&!f.wTail?dt*.5:0),0,1);
+      if(f.water){ f.wHead=Math.min(1,f.wHead+dt*3.2); f.wTail=0; }
+      else if(f.wHead>0){ f.wTail=Math.min(1,f.wTail+dt*3.2); if(f.wTail>=1){ f.wHead=0; f.wTail=0; } }
+      if(f.wHead>=1 && f.wTail===0 && Math.random()<dt*(G.stir?40:16)) G.parts.push({x:(G.stir?G.ptr.x:716)+rand(-10,10),y:G.stir?G.ptr.y:409,vx:rand(-110,110),vy:rand(-190,-70),g:520,life:.5,max:.5,c:Math.random()<.5?'#bfe6fb':'#ffffff',s:rand(3,6)}); }
+  };
+});
+
+/* 2 — Làm sợi mì Quảng */
+const MILL={x:650,y:380,w:340}; // centre & width of coi_base
+function millGeo(){ const s=MILL.w/598, h=500*s, x0=MILL.x-MILL.w/2, y0=MILL.y-h/2;
+  return {s,x0,y0, top:{x:x0+312*s,y:y0+88*s,rx:184*s,ry:60*s}, mid:{x:x0+312*s,y:y0+160*s,rx:200*s,ry:66*s}, sideBot:y0+268*s, spout:{x:x0+585*s,y:y0+330*s}}; }
+function millArm(a,front){ const g=millGeo(), c=g.mid, s=g.s; const sx=c.x+Math.cos(a)*c.rx, sy=c.y+Math.sin(a)*c.ry, px=c.x+Math.cos(a)*(c.rx+46*s*2), py=c.y+Math.sin(a)*(c.ry+16*s*2);
+  if((Math.sin(a)>0)!==front) return;
+  ctx.lineCap='round'; ctx.strokeStyle='#4a240d'; ctx.lineWidth=22*s*2; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(px,py); ctx.stroke();
+  ctx.strokeStyle='#c8742f'; ctx.lineWidth=16*s*2; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(px,py); ctx.stroke();
+  panel(px-12*s*2,py-62*s*2,24*s*2,66*s*2,8*s*2,'#d4843a','#4a240d',3); ell(px,py-62*s*2,12*s*2,5*s*2,'#e7a35c'); }
+function drawMill(L){
+  const g=millGeo(), a=L.f.ang||0;
+  millArm(a,false);
+  spr('coi_base',MILL.x,MILL.y,MILL.w);
+  // moving granite on upper stone side
+  ctx.save(); ctx.beginPath(); ctx.ellipse(g.top.x,g.top.y,g.top.rx,g.top.ry,0,0,Math.PI); ctx.lineTo(g.top.x-g.top.rx,g.sideBot-g.top.ry*.4); ctx.ellipse(g.top.x,g.sideBot-g.top.ry*1.1,g.top.rx,g.top.ry,0,Math.PI,0,true); ctx.closePath(); ctx.clip();
+  for(let i=0;i<70;i++){ const u=((i*0.137+a/(Math.PI*2))%1+1)%1, th=u*Math.PI, x=g.top.x-Math.cos(th)*g.top.rx, y=g.top.y+Math.sin(th)*g.top.ry+((i*37)%100)/100*(g.sideBot-g.top.y-g.top.ry);
+    ctx.fillStyle=i%3?'rgba(60,60,64,.35)':'rgba(255,255,255,.4)'; ctx.fillRect(x,y,3,3); }
+  if(G.stir){ ctx.fillStyle='rgba(255,255,255,.12)'; const hx=g.top.x-Math.cos((a*.5)%Math.PI)*g.top.rx; ctx.fillRect(hx-8,g.top.y,16,g.sideBot-g.top.y); }
+  ctx.restore();
+  if(L.f.rice>0){ const k=Math.max(.15,L.f.rice); ctx.save(); ctx.beginPath(); ctx.ellipse(g.top.x-g.top.rx*.15,g.top.y+4,g.top.rx*.62,g.top.ry*.6,0,0,Math.PI*2); ctx.clip();
+    ell(g.top.x-g.top.rx*.15,g.top.y+4+(1-k)*10,g.top.rx*.62,g.top.ry*.6,'#efe7d4');
+    for(let i=0;i<60*k;i++){ const xx=g.top.x-g.top.rx*.15+((i*53)%100-50)/50*g.top.rx*.6, yy=g.top.y+((i*29)%100-50)/50*g.top.ry*.55+4; ctx.fillStyle='#fffaf0'; ctx.fillRect(xx,yy,4,2); }
+    ctx.restore(); }
+  millArm(a,true);
+  if(L.f.flow>0){ const sp=g.spout, b={x:842,y:452}; ctx.strokeStyle='rgba(250,248,240,.95)'; ctx.lineWidth=7*L.f.flow; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(sp.x,sp.y); ctx.quadraticCurveTo(sp.x+22,sp.y+4,b.x,b.y); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2; ctx.stroke(); }
+}
+LV.push(()=>{
+  const items=[ mk('to','to_rong',235,400,280,{lock:2,label:'Tô nước'}), mk('gao','ro_gao',330,572,220,{label:'Rổ gạo'}),
+    mk('bot','bat_bot',842,492,150,{lock:5,label:'Bát bột'}) ];
+  const N={x:475,w:600,y:300}; const nh=()=>sh('noi_hap',N.w); const cloth=()=>({x:N.x-.005*N.w,y:N.y-nh()/2+.283*nh(),rx:.368*N.w,ry:.217*nh()});
+  return { n:2, bg:'bg_ban', items, f:{water:1,ang:0,fire:0,sheet:0,steam:0,cuts:[],noodles:0,rice:0,grind:0,flow:0,cook:0},
+    zones:{ to:{x:235,y:380,r:140}, coi:{x:655,y:320,r:125}, noi:{x:473,y:213,rx:221,ry:87}, bep:{x:150,y:420,w:660,h:120}, thot:{x:220,y:330,w:520,h:240} },
+    snd:L=>({boil:L.bg==='bg_bep'&&L.f.fire?(.35+L.f.steam*.4):0, grind:G.stir&&cur(L)?.zone==='coi'?.8:0}),
+    steps:[
+      {type:'drop',hint:'Ngâm gạo: kéo rổ gạo đổ vào tô nước.',need:['gao'],zone:'to',onEach:L=>{ const t=itm(L,'to'); t.img='gao_ngam'; t.w=280; t.label='Gạo ngâm'; L.f.water=0; burst(235,380,['#fffaf0','#bfe6fb'],20); }},
+      {type:'wait',hint:'Đang ngâm gạo cho mềm. Thật ra phải ngâm vài tiếng đấy!',dur:2.4},
+      {type:'drop',hint:'Kéo tô gạo ngâm đổ vào cối đá.',need:['to'],zone:'coi',onEach:L=>{ L.f.rice=1; }},
+      {type:'stir',hints:['Xay bột: xoay tay quay cối đá, vòng 1/3.','Bột gạo bắt đầu chảy ra. Xoay tiếp vòng 2/3.','Xoay vòng cuối 3/3 cho bột thật mịn!'],zone:'coi',turns:3,tool:'tay_cam',
+        onProg:(L,q)=>{ L.f.ang=q*Math.PI*6; L.f.grind=q; L.f.rice=1-q*.85; },
+        onDone:L=>{ L.f.grind=1; L.f.rice=0; toast('Bột gạo trắng mịn!','good'); }},
+      {type:'tap',bg:'bg_bep',hint:'Sang bếp hấp. Chạm vào bếp để bật lửa.',zone:'bep',count:1,
+        onStart:L=>{ const b=itm(L,'bot'); b.x=b.hx=130; b.y=b.hy=585; b.w=170; },
+        onTap:L=>{ L.f.fire=1; }},
+      {type:'drop',hint:'Kéo bát bột đổ lên mặt vải nồi hấp.',need:['bot'],zone:'noi',onEach:L=>{ L.f.sheet=.08; }},
+      {type:'stir',hints:['Tráng bánh: xoay vá tròn trên mặt vải nồi hấp, vòng 1/2.','Xoay thêm vòng 2/2 cho bột mỏng đều khắp mặt.'],zone:'noi',turns:2,tool:'tay_va',onProg:(L,q)=>{ L.f.sheet=Math.max(L.f.sheet,.08+q*.92); },onDone:L=>{ L.f.sheet=1; }},
+      {type:'timing',hint:'Hấp bánh: chạm đúng lúc kim chạy vào vùng xanh để lấy bánh vừa chín.',dur:2.8,good:[.62,.84],bar:{x:340,y:330,w:280,h:18},label:'ĐỘ CHÍN',
+        early:'Bánh còn sống, chờ thêm chút!',late:'Bánh chín quá rồi, tráng lại nhé!',onStart:L=>{ L.f.steam=1; },onProgress:(L,p)=>{ L.f.cook=p; },onDone:L=>{ L.f.steam=0; L.f.cook=.75; }},
+      {type:'swipe',bg:'bg_thot',hint:'Cắt sợi: cắt tấm bánh 5 nhát, mỗi nhát ra một nắm sợi mì.',zone:'thot',count:5,len:60,tool:'tay_dao',
+        onStart:L=>{ L.f.fire=0; L.f.board=1; L.f.slice=0; }, onCut:(L,n,x)=>{ L.f.slice=n; burst(250+380*(1-n/5),450,['#ffffff','#f3ead2'],10); }, onDone:L=>{ L.f.noodles=1; }}
+    ],
+    under(L){ const f=L.f;
+      if(L.bg==='bg_bep'){ gasFlame(478,516,280,f.fire); spr('noi_hap',N.x,N.y,N.w);
+        if(f.sheet>0){ const c=cloth(), q=f.sheet; ctx.save(); ctx.beginPath(); ctx.ellipse(c.x,c.y,c.rx*.93*q,c.ry*.93*q,0,0,Math.PI*2); ctx.clip();
+          const cook=f.cook||0; spr('banh_lop',c.x,c.y,c.rx*1.86,{alpha:.55+Math.min(1,cook/.75)*.45});
+          if(cook>0){ ctx.globalAlpha=Math.min(.5,cook*.6); ell(c.x,c.y,c.rx,c.ry,'#fffdf6'); ctx.globalAlpha=1; }
+          if(cook>.9){ ctx.globalAlpha=Math.min(.5,(cook-.9)*2.5); ell(c.x,c.y,c.rx,c.ry,'#c99a5a'); ctx.globalAlpha=1; }
+          ctx.restore(); } }
+      if(L.bg==='bg_thot' && f.board){
+        const n=f.slice||0, fr=1-n/5;
+        if(f.noodles){ shadow(480,530,180,20); spr('soi_trang',480,450,360); }
+        else { if(fr>0&&ready('banh_lop')){ const im=IMG.banh_lop, iw=im.naturalWidth, ih=im.naturalHeight, w=380, h=w*ih/iw; shadow(250+w*fr/2,450+h/2,w*fr/2,12);
+            ctx.drawImage(im,0,0,iw*fr,ih,250,450-h/2,w*fr,h); }
+          if(n>0){ const pw=110+n*38; shadow(700,520,pw*.42,12); spr('soi_trang',700,470,pw); } } } },
+    drawItem(L,it){
+      if(it.id==='bot' && L.bg==='bg_ban'){ spr('to_rong',it.x,it.y,it.w*1.05); spr('bat_bot',it.x,it.y,it.w,{alpha:L.f.grind}); return true; }
+      return false; },
+    over(L){ const f=L.f;
+      if(L.bg==='bg_ban'){ drawMill(L); const t=itm(L,'to'); if(f.water&&t.vis){ const h=sh('to_rong',t.w); ell(t.x,t.y-h*.15,t.w*.42,h*.2,'rgba(140,200,230,.55)'); } } },
+    tick(L,dt){ const f=L.f; const grinding=G.stir&&cur(L)?.zone==='coi';
+      f.flow=grinding?Math.min(1,f.flow+dt*4):Math.max(0,f.flow-dt*3);
+      if(L.bg==='bg_bep'){ if(f.fire&&Math.random()<dt*(f.steam?22:6)) steam(478,190,180); } }
+  };
+});
+
+/* 3 — Lọc thịt, thái và sơ chế */
+const CK=.3, cbp=(u,v)=>({x:480+(u-655)*CK,y:486+(v-560)*CK});
+function distSeg(p,a,b){ const dx=b.x-a.x, dy=b.y-a.y, t=clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy),0,1); return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy); }
+const PIECES=[
+  {img:'gk_canhT',c:[246.5,314],off:[25,60],w:393,dest:'me',fly:'canh_ga',l:[[445,285],[482,405]]},
+  {img:'gk_canhP',c:[1064.5,314],off:[-20,60],w:393,dest:'me',fly:'canh_ga',l:[[870,285],[833,405]]},
+  {img:'gk_duiT',c:[252.5,835.5],off:[70,-40],w:411,dest:'dia',fly:'dui_ga',l:[[440,600],[528,792]]},
+  {img:'gk_duiP',c:[1053,836.5],off:[-70,-40],w:400,dest:'dia',fly:'dui_ga',l:[[875,600],[787,792]]},
+  {breast:'L',c:[598,445],dest:'dia',fly:'uc_nho',l:[[543,300],[543,590]]},
+  {breast:'R',c:[717,445],dest:'dia',fly:'uc_nho',l:[[772,300],[772,590]]}];
+const PARTS=PIECES;
+const DIA={x:122,y:520}, ME={x:838,y:515};
+function segX(a,b,c,d){ const o=(p,q,r)=>Math.sign((q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x)); return o(a,b,c)!==o(a,b,d)&&o(c,d,a)!==o(c,d,b); }
+function drawSliced(n,x,y,w,cut,total,o){ if(!ready(n)) return; o=o||{}; const im=IMG[n], iw=im.naturalWidth, ih=im.naturalHeight, h=w*ih/iw, gap=o.gap||9;
+  const b=[0]; for(let i=cut;i>=1;i--) b.push(1-i/(total+1)); b.push(1);
+  ctx.save(); ctx.translate(x,y); if(o.rot) ctx.rotate(o.rot);
+  for(let j=0;j<b.length-1;j++){ const jit=(j%2?3:0);
+    if(o.axis==='y'){ const sy=b[j]*ih, shh=(b[j+1]-b[j])*ih; ctx.drawImage(im,0,sy,iw,shh,-w/2+jit,-h/2+b[j]*h+j*gap,w,shh*h/ih); }
+    else { const sx=b[j]*iw, sw=(b[j+1]-b[j])*iw; ctx.drawImage(im,sx,0,sw,ih,-w/2+b[j]*w+j*gap,-h/2+jit,sw*w/iw,h); } }
+  ctx.restore(); }
+LV.push(()=>{
+  const items=[ mk('ga','ga_nghieng',190,350,182,{label:'Gà đã rửa'}), mk('hanh','hanh_nguyen',335,350,104,{label:'Hành lá'}), mk('trung','trung_vo',672,352,170,{label:'Trứng luộc'}),
+    mk('chan','chan_ga',818,358,136,{label:'Chân gà',dest:'me'}), mk('khung','gk_khung',cbp(657.5,483.5).x,cbp(657.5,483.5).y,513*CK,{vis:false,label:'Khung xương',dest:'me'}),
+    mk('uc','uc_to',DIA.x,DIA.y-6,150,{vis:false,label:'Ức gà'}) ];
+  const home=(L,id,img,w,x,y)=>{ const it=itm(L,id); if(img) it.img=img; it.w=w; it.hx=x??it.ox; it.hy=y??it.oy; it.ret=true; };
+  items.forEach(i=>{ i.ox=i.x; i.oy=i.y; });
+  const toBoard=(L,it,img,w)=>{ it.hx=480; it.hy=505; it.w=w; if(img) it.img=img; L.f.cuts=[]; };
+  const NAME={ga:'gà',hanh:'hành lá',trung:'trứng'};
+  const ACT={
+    ga:()=>[
+      {type:'cutlines',hint:'Lọc thịt: cắt theo từng đường gạch vàng trên con gà để tách đùi, cánh, ức.',total:6,
+        onCutPart:(L,i)=>{ const P=PIECES[i]; L.f.det[i]=0; if(P.breast){ const s0=cbp(...P.c); L.items.push(mk('p'+i,'uc_nho',clamp(s0.x+(P.breast==='L'?-150:150),260,700),s0.y+10,72,{label:'Ức gà',dest:'dia'})); burst(s0.x,s0.y,['#f7b8a0','#ffffff'],10); } },
+        onDone:L=>{ L.f.chick=0; itm(L,'khung').vis=true; }},
+      {type:'idle',id:'sort',hint:'Phân loại: kéo phần nhiều thịt vào đĩa thịt, phần xương vào mẹt nấu nước dùng.',onDone:L=>{ itm(L,'uc').vis=true; }},
+      {type:'drop',hint:'Kéo miếng ức gà lên thớt để thái.',need:['uc'],zone:'thot',keep:true,onEach:(L,it)=>{ toBoard(L,it,null,300); L.f.slice=0; it.sliced=1; }},
+      {type:'swipe',hint:'Thái thịt: cắt miếng ức gà 5 nhát, mỗi nhát tách ra một lát.',zone:'cut',count:5,len:55,tool:'tay_dao',
+        onCut:(L,n)=>{ L.f.slice=n; burst(480+120-n*50,500,['#f7b8a0','#ffe0d0'],8); },
+        onDone:L=>{ const it=itm(L,'uc'); it.sliced=0; home(L,'uc','ga_thai2',130,DIA.x,DIA.y-10); }}],
+    hanh:()=>[
+      {type:'swipe',hint:'Thái hành: cắt cây hành lá 5 nhát, mỗi nhát rời ra một khúc.',zone:'cut',count:5,len:55,tool:'tay_dao',
+        onCut:(L,n)=>{ L.f.hslice=n; burst(480-80+n*45,505,['#7cc04a','#d9f2b0'],8); },onDone:L=>{ itm(L,'hanh').hsl=0; home(L,'hanh','hanh_thai3',100); }}],
+    trung:()=>[
+      {type:'tap',hints:['Bóc trứng: chạm vào trứng để đập nứt vỏ (lần 1/3).','Chạm vào trứng để bóc vỏ (lần 2/3).','Chạm vào trứng để bóc sạch hết vỏ (lần 3/3).'],zone:'cut',count:3,
+        onTap:(L,n)=>{ burst(480,500,['#e9a77a','#fff6e6','#c9774f'],14); L.f.egg=n; if(n>=3){ const t=itm(L,'trung'); t.img='trung_boc'; t.w=230; } }},
+      {type:'swipe',hint:'Cắt đôi trứng: cắt 2 nhát.',zone:'cut',count:2,len:55,tool:'tay_dao',onCut:(L,n,x)=>L.f.cuts.push(clamp(x,410,550)),onDone:L=>{ L.f.cuts=[]; home(L,'trung','trung_cat',130); }}]
+  };
+  const hub=need=>({type:'drop',any:true,hint:'Còn: '+need.map(k=>NAME[k]).join(', ')+'. Kéo món nào lên giữa thớt trước cũng được.',need,zone:'thot',
+    onEach:(L,it)=>{ const rest=need.filter(k=>k!==it.id);
+      if(it.id==='ga'){ it.vis=false; L.f.chick=1; }
+      else { it.vis=true; if(it.id==='hanh'){ toBoard(L,it,null,150); it.hsl=1; L.f.hslice=0; } else toBoard(L,it,null,200); it.lock=99; it.ret=true; }
+      L.steps.splice(L.si+1,0,...ACT[it.id](), rest.length?hub(rest):{type:'cond',hint:'Còn chân gà: bỏ vào mẹt nấu nước dùng nhé.',test:L=>!itm(L,'chan').vis}); }});
+  return { n:3, bg:'bg_thot', items, f:{cuts:[],chick:0,cut:new Set(),det:{},dia:[],me:[],slice:0},
+    zones:{ thot:{x:270,y:400,w:420,h:200}, cut:{x:230,y:370,w:500,h:240}, me:{x:ME.x,y:ME.y,rx:140,ry:95}, dia:{x:DIA.x,y:DIA.y,rx:125,ry:75} },
+    busyMsg:'Làm xong món đang làm đã nhé!',
+    steps:[hub(['ga','hanh','trung'])],
+    under(L){ const f=L.f;
+      plate(DIA.x,DIA.y+8,230); tag('Đĩa thịt',DIA.x,DIA.y+64);
+      f.dia.forEach(p=>spr(p.img,DIA.x+p.x,DIA.y+p.y,p.w||70,{rot:p.r}));
+      spr('gio',ME.x,ME.y,230); f.me.forEach(p=>spr(p.img,ME.x+p.x,ME.y+p.y,p.w||64,{rot:p.r}));
+      const lbl='Để nấu nước dùng'; ctx.font=font(15,800); const lw=ctx.measureText(lbl).width+20; panel(ME.x-lw/2,ME.y+56,lw,24,12,'#c2410c','#6b2a08',2); T(lbl,ME.x,ME.y+73,15,'#fff','center',800);
+      if(f.chick){ shadow(480,612,170,16); const bL=f.cut.has(4), bR=f.cut.has(5), bp=cbp(657.5,483.5);
+        spr(bL&&bR?'gk_khung':bL?'gk_thanL':bR?'gk_thanR':'gk_than',bp.x,bp.y,513*CK);
+        PIECES.forEach((P,i)=>{ if(P.breast) return; const t=f.det[i]; if(t!=null&&t>=.75) return; const e=t==null?0:Math.min(1,t/.35);
+          const q=cbp(P.c[0]+P.off[0]*(1-e*2.2),P.c[1]+P.off[1]*(1-e*2.2)); spr(P.img,q.x,q.y,P.w*CK); }); } },
+    drawItem(L,it){ if(it.id==='uc'&&it.sliced&&!it.ret){ drawSliced('uc_to',it.x,it.y,it.w,L.f.slice,5); return true; }
+      if(it.id==='hanh'&&it.hsl&&!it.ret){ drawSliced('hanh_nguyen',it.x,it.y,it.w,L.f.hslice||0,5,{axis:'y',rot:-Math.PI/2,gap:12}); return true; } return false; },
+    over(L){ const f=L.f; ctx.fillStyle='rgba(255,255,255,.75)'; f.cuts.forEach(x=>ctx.fillRect(x-1,440,2.5,120));
+      const s=cur(L); if(s&&s.type==='cutlines'&&!s.done&&!G.card) PARTS.forEach((P,i)=>{ if(f.cut.has(i)) return; const a=cbp(...P.l[0]), b=cbp(...P.l[1]);
+        ctx.save(); ctx.setLineDash([9,7]); ctx.lineDashOffset=-G.t*30; ctx.lineCap='round'; ctx.lineWidth=7; ctx.strokeStyle='rgba(58,29,12,.6)'; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        ctx.lineWidth=4; ctx.strokeStyle=`rgba(255,${200+Math.sin(G.t*6)*40|0},60,1)`; ctx.stroke(); ctx.restore(); });
+      const t=itm(L,'trung'); if(t.img==='trung_vo' && f.egg>=1 && !t.ret){
+        ctx.strokeStyle='rgba(90,45,20,.85)'; ctx.lineWidth=2; [[-60,-10],[0,-24],[55,-8]].forEach(([a,b])=>{ ctx.beginPath(); ctx.moveTo(t.x+a-10,t.y+b); ctx.lineTo(t.x+a-3,t.y+b+7); ctx.lineTo(t.x+a+4,t.y+b-1); ctx.lineTo(t.x+a+11,t.y+b+6); ctx.stroke(); });
+        if(f.egg>=2) spr('trung_boc',t.x,t.y+4,230,{alpha:.6}); } },
+    tick(L,dt){ const f=L.f; { const s=cur(L); if(s&&s.type==='idle'&&!s.done&&s.id==='sort'&&L.adv<=0&&f.cut.size>=6&&Object.values(f.det).every(v=>v>=.8)&&!L.items.some(i=>i.dest&&i.vis&&i.id!=='chan')) finish(L,true); }
+      for(const k in f.det){ const P=PIECES[k]; if(P.breast) continue; const was=f.det[k]; f.det[k]+=dt;
+      if(was<.75&&f.det[k]>=.75){ const q=cbp(P.c[0]-P.off[0]*1.2,P.c[1]-P.off[1]*1.2), lx=clamp(q.x,260,700), ly=clamp(q.y,380,590);
+        L.items.push(mk('p'+k,P.fly,lx,ly,P.fly==='dui_ga'?88:74,{label:P.fly==='dui_ga'?'Đùi gà':'Cánh gà',dest:P.dest})); } } },
+    preDrop(L,it,p){ if(!it.dest) return false; const inMe=inZ(L.zones.me,p), inDia=inZ(L.zones.dia,p);
+      if(!inMe&&!inDia){ it.ret=true; return true; }
+      const to=inMe?'me':'dia'; if(to!==it.dest){ it.ret=true;
+        mistake(L, it.dest==='me' ? (it.id==='p0'||it.id==='p1' ? 'Cánh gà nhiều xương, ít thịt. Để hầm nước dùng cho ngọt nhé!' : 'Xương dùng để nấu nước hầm cho ngọt! Bỏ vào mẹt nhé.') : 'Đùi và ức nhiều thịt, dùng làm nhân. Bỏ vào đĩa thịt nhé!'); return true; }
+      it.vis=false; sfx('good'); burst(p.x,p.y,[C.gold,C.cream],10);
+      const d=to==='me'?{img:it.img,x:rand(-50,50),y:rand(-20,12),r:rand(-.4,.4),w:it.id==='khung'?85:it.w*.85}:{img:it.img,x:rand(-45,45),y:rand(-16,8),r:rand(-.4,.4),w:it.w*.85}; L.f[to].push(d);
+      const s=cur(L); const pend=L.items.filter(i=>i.dest&&i.vis&&i.id!=='chan').length; if(s&&s.type==='idle'&&!s.done&&s.id==='sort'&&pend===0&&L.f.cut.size>=6) finish(L,true); return true; },
+    clickCut(L,p){ let best=-1,bd=26; PARTS.forEach((P,i)=>{ if(L.f.cut.has(i)) return; const d=distSeg(p,cbp(...P.l[0]),cbp(...P.l[1])); if(d<bd){ bd=d; best=i; } });
+      if(best<0) return false; L.f.cut.add(best); sfx('chop'); burst(p.x,p.y,['#ffffff','#f7b8a0'],8); G.chopT=.25; cur(L).onCutPart(L,best); if(L.f.cut.size>=PARTS.length&&!cur(L).done) finish(L); return true; },
+    cutTest(L,a,b){ PARTS.forEach((P,i)=>{ if(L.f.cut.has(i)) return; if(segX(a,b,cbp(...P.l[0]),cbp(...P.l[1]))){ L.f.cut.add(i); sfx('chop'); burst(b.x,b.y,['#ffffff','#f7b8a0'],8); cur(L).onCutPart(L,i); } });
+      if(L.f.cut.size>=PARTS.length&&!cur(L).done){ G.sw=null; finish(L); } }
+  };
+});
+
+/* 4 — Ướp và xào nhân (cảnh bếp có sẵn) */
+const PAN={x:480,y:381,w:470};
+const KNOB={x:680,y:558,r:36}, BURN={x:528,y:410};
+function panGeo(){ const h=sh('chao_trong',PAN.w), x0=PAN.x-PAN.w/2, y0=PAN.y-h/2; return {x:x0+.602*PAN.w, y:y0+.56*h, rx:.36*PAN.w, ry:.3*h}; }
+function burnerOff(){ const b=BURN; ell(b.x,b.y+4,128,56,'#1b1a1d'); ell(b.x,b.y,112,46,'#2f2e33'); ell(b.x,b.y-2,96,38,'#46454b'); ell(b.x,b.y-3,84,32,'#1e1d21');
+  for(let i=0;i<24;i++){ const a=i/24*Math.PI*2; ell(b.x+Math.cos(a)*90,b.y-2+Math.sin(a)*35,3,2,'#0e0e10'); }
+  ell(b.x,b.y-4,56,22,'#b8893a'); ell(b.x,b.y-6,50,19,'#d9a94e'); ell(b.x,b.y-8,40,15,'#3a393e'); ell(b.x,b.y-9,32,12,'#5a595f');
+  ctx.strokeStyle='#121114'; ctx.lineWidth=12; ctx.lineCap='round'; [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sy])=>{ ctx.beginPath(); ctx.moveTo(b.x+sx*70,b.y+sy*24); ctx.lineTo(b.x+sx*150,b.y+sy*62); ctx.stroke(); });
+  ctx.strokeStyle='#3a393f'; ctx.lineWidth=5; [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sy])=>{ ctx.beginPath(); ctx.moveTo(b.x+sx*72,b.y+sy*24-3); ctx.lineTo(b.x+sx*148,b.y+sy*60-3); ctx.stroke(); }); }
+LV.push(()=>{
+  const items=[ ghost('ga',{x:0,y:240,w:195,h:88},'ga_thai2',100,'Thịt gà'), ghost('tom',{x:138,y:276,w:165,h:92},'tom_boc_song',110,'Tôm'),
+    ghost('hanh_tim',{x:2,y:320,w:122,h:70},'chen_hanh',90,'Hành tím'), ghost('nghe',{x:118,y:364,w:125,h:82},'chen_nghe',90,'Nghệ'), ghost('toi',{x:5,y:402,w:122,h:82},'chen_toi',90,'Tỏi'),
+    ghost('nuoc_mam',{x:694,y:166,w:64,h:104},'nuoc_mam',56,'Nước mắm'),
+    mk('to','to_rong',300,560,215,{lock:6,label:''}), mk('dau','dau_an',215,470,58,{lock:5,label:'Dầu ăn'}),
+    mk('chao','chao_trong',858,585,240,{label:'Chảo'}) ];
+  const into=(L,it)=>{ L.f.bowl[it.id]=1; };
+  return { n:4, bg:'bep_xao', intro:'intro4', items, f:{bowl:{},mix:0,wok:0,cook:0,oil:0,shake:0,on:0,pan:0,hot:0,warned:0},
+    zones:{ to:{x:300,y:540,r:115}, bep:{x:BURN.x,y:BURN.y,r:150}, chao:{x:528,y:392,rx:165,ry:82} },
+    snd:L=>({sizzle:L.f.on&&L.f.pan?(L.f.oil?(.45+(G.stir?.5:0)):.15):0}),
+    steps:[
+      {type:'drop',hint:'Cho thịt gà và tôm vào tô để ướp.',need:['ga','tom'],zone:'to',onEach:into},
+      {type:'drop',hint:'Thêm hành tím, tỏi, nghệ và nước mắm.',need:['hanh_tim','toi','nghe','nuoc_mam'],zone:'to',onEach:into},
+      {type:'stir',hints:['Trộn đều: xoay đũa trong tô, vòng 1/2.','Xoay thêm vòng 2/2 cho gia vị thấm đều.'],zone:'to',turns:2,tool:'tay_dua',onTurn:L=>{ L.f.mix=.5; },
+        onDone:L=>{ const t=itm(L,'to'); t.img='to_uop'; t.w=210; L.f.bowl={}; t.label='Nhân ướp'; }},
+      {type:'wait',hint:'Đang ướp nhân cho thấm gia vị. Thật ra phải ướp khoảng 15 phút đấy!',dur:3,label:'ĐANG ƯỚP NHÂN',bar:{x:440,y:282,w:300,h:16}},
+      {type:'cond',hint:'Chuẩn bị xào: đặt chảo lên bếp và vặn núm bật lửa.',test:L=>L.f.on&&L.f.pan},
+      {type:'drop',hint:'Cho chút dầu ăn vào chảo cho nóng.',need:['dau'],zone:'chao',onEach:L=>{ L.f.oil=1; }},
+      {type:'drop',hint:'Đổ nhân đã ướp vào chảo.',need:['to'],zone:'chao',onEach:L=>{ L.f.wok=1; burst(528,380,['#ffd36e','#ffffff','#f2b51c'],20); }},
+      {type:'stir',hints:['Xào nhân: đảo xẻng trong chảo, vòng 1/3.','Nhân bắt đầu săn lại. Đảo tiếp vòng 2/3.','Đảo vòng cuối 3/3 cho nhân vàng thơm!'],zone:'chao',turns:3,tool:'tay_xeng',
+        onProg:(L,q)=>{ L.f.cook=Math.max(L.f.cook,q); },onTurn:L=>{ L.f.shake=.35; },onDone:L=>{ L.f.cook=1; }}
+    ],
+    hintText(L,s){ if(L.f.warned&&L.f.on) return 'Chảo nóng mà chưa có nhân! Vặn núm tắt bếp đi đã.';
+      if(s.type==='cond') return !L.f.pan?'Kéo chảo đặt lên bếp.':'Vặn núm để bật bếp.';
+      if(s.type==='stir'&&s.zone==='chao'&&!L.f.on) return 'Bếp đang tắt! Vặn núm bật bếp lên để xào.'; return null; },
+    preDown(L,p){ if(inZ(KNOB,p)){ L.f.on=!L.f.on; sfx('tap'); if(!L.f.on){ L.f.hot=0; L.f.warned=0; } else beep(150,.3,'sawtooth',.03); return true; }
+      if(L.f.warned&&L.f.on){ toast('Tắt bếp trước đã, rồi ướp nhân nhé!','bad'); return true; }
+      const s=cur(L); if(s&&s.type==='stir'&&s.zone==='chao'&&!L.f.on&&inZ(L.zones.chao,p)){ toast('Bếp đang tắt! Vặn núm bật bếp lên.','info'); return true; }
+      return false; },
+    preDrop(L,it,p){ if(it.id==='chao'){ if(inZ(L.zones.bep,p)){ it.x=it.hx=PAN.x; it.y=it.hy=PAN.y; it.w=PAN.w; it.lock=99; it.label=''; L.f.pan=1; sfx('good'); } else it.ret=true; return true; } return false; },
+    under(L){ if(L.f.on) gasFlame(528,418,250,1); else burnerOff();
+      const k=KNOB; ctx.save(); ctx.translate(k.x,k.y); ctx.rotate(L.f.on?-1.2:0); ctx.fillStyle=L.f.on?'#ff5a2a':'#c8c2ba'; ctx.fillRect(-3,-26,6,14); ctx.restore();
+      if(!G.card){ const cue=cur(L)?.type==='cond'&&L.f.pan&&!L.f.on || (L.f.warned&&L.f.on); if(cue){ ctx.save(); ctx.lineWidth=4; ctx.strokeStyle=`rgba(255,210,70,${.5+.5*Math.sin(G.t*8)})`; ctx.beginPath(); ctx.arc(k.x,k.y,34,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+        if(inZ(KNOB,G.ptr)) tag(L.f.on?'Tắt bếp':'Bật bếp',k.x,k.y-46); } },
+    drawItem(L,it){
+      if(it.id==='chao'){ const j=L.f.shake>0?Math.sin(G.t*60)*4:0, x=it.x+j;
+        if(!L.f.pan){ spr('chao_trong',x,it.y,it.w); return true; }
+        spr('chao_trong',x,it.y,it.w); const g=panGeo();
+        if(L.f.oil&&!L.f.wok){ ctx.save(); ctx.globalAlpha=.45; ell(g.x+j,g.y,g.rx*.55,g.ry*.5,'#e8b23a'); ctx.globalAlpha=.7; ell(g.x-20+j,g.y-6,g.rx*.18,g.ry*.12,'#fff3b0'); ctx.restore(); }
+        if(L.f.wok){ const raw=1-L.f.cook; if(raw>0) spr('nhan_song',g.x+j,g.y-4,g.rx*1.75,{alpha:raw}); spr('chao_nhan',x,it.y,it.w,{alpha:Math.min(1,L.f.cook*1.15)}); }
+        if(L.f.hot>1.5&&!L.f.oil){ ctx.save(); ctx.globalAlpha=Math.min(.35,(L.f.hot-1.5)*.2); ell(g.x+j,g.y,g.rx*.7,g.ry*.6,'#3a2a20'); ctx.restore(); }
+        return true; }
+      if(it.id==='to'&&it.img==='to_rong'){ spr('to_rong',it.x,it.y,it.w); bowlFill(it,L); return true; } return false; },
+    tick(L,dt){ const f=L.f; if(f.shake>0) f.shake-=dt;
+      if(f.on&&f.pan&&L.si<4&&!G.card){ f.hot+=dt; if(f.hot>1.2&&Math.random()<dt*14){ const g=panGeo(); G.parts.push({x:g.x+rand(-60,60),y:g.y-10,vx:rand(-8,8),vy:-rand(30,60),g:0,life:1.8,max:1.8,c:'#6b6460',s:rand(10,18),soft:true}); }
+        if(f.hot>3&&!f.warned){ f.warned=1; mistake(L,'Chảo nóng rồi mà chưa có nhân! Tắt bếp đi, ướp nguyên liệu trước đã.'); } }
+      if(f.oil&&f.on && Math.random()<dt*(G.stir?30:10)){ const g=panGeo(); G.parts.push({x:g.x+rand(-g.rx*.6,g.rx*.6),y:g.y+rand(-g.ry*.4,g.ry*.3),vx:rand(-60,60),vy:rand(-160,-60),g:500,life:.4,max:.4,c:'#ffe28a',s:rand(2,4)}); }
+      if(f.wok&&f.on && Math.random()<dt*16) steam(528,350,130); }
+  };
+});
+
+/* 5 — Nấu nước dùng (cảnh nồi có sẵn) */
+LV.push(()=>{
+  const items=[ mk('xuong','me_ga',118,560,200,{label:'Chân, cánh, xương gà'}),
+    ghost('hanh_tay',{x:15,y:180,w:120,h:88},'hanh_tay',80,'Hành tây'), ghost('hanh_tim',{x:0,y:268,w:105,h:85},'hanh_tim',80,'Hành tím'),
+    ghost('muoi',{x:706,y:36,w:78,h:104},'muoi_lo',50,'Muối'), ghost('hatnem',{x:790,y:36,w:78,h:104},'hatnem_lo',50,'Hạt nêm'), ghost('duong',{x:872,y:36,w:34,h:104},'duong_lo',50,'Đường phèn'),
+    ghost('nuocmam',{x:855,y:455,w:105,h:115},'nuoc_mam',56,'Nước mắm'),
+    mk('vot','vot_sach',810,560,170,{lock:2,vis:false,label:'Vợt hớt bọt',anchor:[.3,.62]}), mk('nhan','chao_nhan',130,575,230,{lock:5,vis:false,label:'Nhân đã xào'}), mk('batbo','to_rong',150,590,130,{lock:99,vis:false,label:'Bát bỏ bọt'}) ];
+  const FOAM=[{x:390,y:300},{x:520,y:282},{x:612,y:345},{x:440,y:388},{x:565,y:410}];
+  const setPot=(L,n)=>{ L.f.potPrev=L.f.pot; L.f.pot=n; L.f.potT=0; };
+  const NEM={muoi:'Muối',hatnem:'Hạt nêm',duong:'Đường phèn',nuocmam:'Nước mắm'};
+  return { n:5, bg:'noi1', intro:'intro5', items, ui:'tl', hoverLabels:true, f:{heat:.35,foam:[],full:0,pot:'pot0',potT:1,nem:{},salty:0},
+    zones:{ noi:{x:485,y:345,rx:250,ry:120}, bep:{x:240,y:440,w:520,h:120}, batbo:{x:150,y:580,r:70} },
+    snd:L=>({boil:L.f.pot==='pot0'?.25:.35+L.f.heat*.6}),
+    steps:[
+      {type:'drop',hint:'Hầm nước dùng: thả mẹt chân, cánh, xương gà vào nồi nước.',need:['xuong'],zone:'noi',onEach:L=>{ setPot(L,null); burst(485,340,['#bfe6fb','#ffffff'],24); }},
+      {type:'hold',mode:'keep',hint:'Hầm xương: nhấn giữ vào bếp để tăng lửa, thả ra để giảm. Giữ kim trong vùng xanh đủ 4 giây.',zone:'bep',need:4,zr:[.45,.72],v0:.3,
+        bar:{x:330,y:208,w:300,h:18},over:'Lửa to quá, nước trào ra rồi!',onDone:L=>{ L.f.foam=FOAM.map(p=>({...p,a:1})); toast('Bọt bẩn nổi lên rồi!','info'); }},
+      {type:'skim',hint:'Hớt bọt: vớt từng đám bọt bằng vợt, rồi đổ bọt vào bát bỏ bọt.',zone:'noi',
+        onStart:L=>{ itm(L,'vot').vis=true; itm(L,'batbo').vis=true; },
+        onDone:L=>{ itm(L,'vot').vis=false; itm(L,'batbo').vis=false; toast('Nước dùng trong veo rồi!','good'); }},
+      {type:'drop',hint:'Cho hành tây và hành tím vào nồi cho nước dùng thơm ngọt.',need:['hanh_tay','hanh_tim'],zone:'noi',onEach:(L,it)=>{ L.f[it.id==='hanh_tim'?'htim':'htay']=0.001; burst(485,345,['#bfe6fb','#ffffff'],14); }},
+      {type:'drop',hint:'Nêm nếm: thêm muối, hạt nêm, đường phèn và nước mắm.',need:['muoi','hatnem','duong','nuocmam'],zone:'noi',onEach:(L,it)=>{ L.f.nem[it.id]=1; burst(485,330,['#ffffff','#f6e7b0','#d9a54a'],14); }},
+      {type:'drop',hint:'Đổ chảo nhân gà, tôm đã xào vào nồi nước dùng.',need:['nhan'],zone:'noi',onStart:L=>{ itm(L,'nhan').vis=true; },onEach:L=>{ L.f.nhan=0.001; burst(485,340,['#ffd36e','#f2a64e','#ffffff'],22); }},
+      {type:'stir',hints:['Đảo đều: xoay vá trong nồi, vòng 1/2.','Xoay thêm vòng 2/2 cho nhân thấm vị.'],zone:'noi',turns:2,tool:'tay_va',onProg:(L,q)=>{ L.f.mixA=q*Math.PI*4; L.f.mixQ=q; }},
+      {type:'hold',mode:'keep',id:'sim',hint:'Rim lửa nhỏ: nhấn giữ vào bếp để tăng lửa, thả ra để giảm. Giữ kim ở vùng lửa nhỏ đủ 4,5 giây cho nước sánh lại.',zone:'bep',need:4.5,zr:[.08,.38],v0:.2,max:.6,doneLabel:'Đã rim',
+        bar:{x:330,y:208,w:300,h:18},over:'Lửa to quá, nước sẽ cạn nhanh và khét đáy nồi! Rim lửa nhỏ thôi nhé.'}
+    ],
+    preDrop(L,it,p){ if(!NEM[it.id]||!L.f.nem[it.id]||!inZ(L.zones.noi,p)) return false;
+      G.over=G.over||{}; G.over[it.id]=(G.over[it.id]||0)+1; L.f.salty++; burst(485,330,['#ffffff','#f6e7b0'],10);
+      mistake(L,'Ối, '+NEM[it.id].toLowerCase()+' đã cho rồi! Thêm nữa nước dùng sẽ bị '+(it.id==='duong'?'ngọt quá':'mặn')+' đấy.'); return true; },
+    preDownOld(L,p){ const s=cur(L); if(!(s&&s.type==='cond'&&L.n===5)) return false;
+      const k=[0,1,2].find(i=>Math.hypot(p.x-(360+i*120),p.y-215)<48); if(k==null) return false;
+      if(k===0){ L.f.low=1; L.f.heat=.08; sfx('good'); } else { mistake(L,'Lửa to quá, nước sẽ cạn nhanh và khét đáy nồi! Hạ lửa nhỏ thôi nhé.'); } return true; },
+    overOld(L){ const s=cur(L); if(s&&s.type==='cond'&&L.n===5&&!G.card){ panel(290,160,380,110,18,'rgba(58,29,12,.82)');
+      [['bep1','Lửa nhỏ'],['bep2','Lửa vừa'],['bep3','Lửa to']].forEach(([n,l],i)=>{ const x=360+i*120, hv=Math.hypot(G.ptr.x-x,G.ptr.y-215)<48; spr(n,x,205,hv?92:80); TS(l,x,258,15,'#fff','center',800); }); } },
+    under(L){ const f=L.f; gasGlow(f.heat);
+      const PP=n=>n==='pot0'?[485,337.5,602.5]:[485,341.25,537.5]; const dp=(n,a)=>{ const q=PP(n); spr(n,q[0],q[1],q[2],{alpha:a}); };
+      if(f.potPrev&&f.potT<1) dp(f.potPrev,f.pot?1:1-f.potT); if(f.pot) dp(f.pot,f.potPrev?f.potT:Math.max(f.potT,f.pot==='pot0'?1:0));
+      const hideOn=f.pot==='pot_nhan'?1-f.potT:1;
+      if(f.htim&&hideOn>0) spr('lop_htim',485,341.25,537.5,{alpha:Math.min(1,f.htim)*hideOn}); if(f.htay&&hideOn>0) spr('lop_htay',485,341.25,537.5,{alpha:Math.min(1,f.htay)*hideOn});
+      if(f.salty) tintEll(485,345,250,120,'#8a4a12',Math.min(.3,f.salty*.1));
+      if(f.sim) tintEll(485,345,250,120,'#b8561a',f.sim*.38);
+      if(f.nhan&&(f.nhanFade||0)<1){ const e=Math.min(1,f.nhan)*(1-(f.nhanFade||0)), A=0; ctx.save(); ctx.beginPath(); ctx.ellipse(485,345,248,118,0,0,Math.PI*2); ctx.clip();
+        if(f.mixQ) tintEll(485,345,250,120,'#f0a03a',.12+f.mixQ*.25);
+        [[.3,.35,'p_ga3',70],[1.4,.62,'p_tom3',62],[2.4,.55,'p_ga3',64],[3.5,.6,'p_tom3',58],[4.6,.5,'p_ga3',62],[5.6,.65,'p_tom3',56]].forEach(([a,d,n,w],i)=>{
+          const x=485+Math.cos(a+A)*d*200, y=345+Math.sin(a+A)*d*85-(1-e)*(60+i*8)+Math.sin(G.t*2+i)*2;
+          if(f.sim){ ctx.save(); ctx.filter=`saturate(${1+f.sim*.5}) brightness(${1-f.sim*.12})`; spr(n,x,y,w,{alpha:e,rot:A*.4+i}); ctx.restore(); } else spr(n,x,y,w,{alpha:e,rot:A*.4+i}); }); ctx.restore(); }
+      L.f.foam.forEach(p=>{ if(p.a>0) spr('bot',p.x+Math.sin(G.t*1.5+p.x)*4,p.y+Math.cos(G.t*1.3+p.y)*2,92,{alpha:p.a}); }); },
+    drawItem(L,it){ if(it.id==='vot'){ spr(it.img,it.x,it.y,it.w); return true; } if(it.id==='nhan'){ spr('chao_nhan',it.x,it.y,it.w); return true; } return false; },
+    tick(L,dt){ const f=L.f; { const s=cur(L); if(s&&s.id==='sim') f.sim=Math.min(1,s.p/s.need); }
+      ['nhan','htim','htay'].forEach(k=>{ if(f[k]&&f[k]<1) f[k]=Math.min(1,f[k]+dt*2); }); if(f.nhan>=1){ f.nhanT=(f.nhanT||0)+dt; if(f.nhanT>.5&&f.pot!=='pot_nhan') setPot(L,'pot_nhan'); if(f.nhanT>.5) f.nhanFade=Math.min(1,(f.nhanFade||0)+dt*2.2); } f.foam.forEach(p=>{ if(p.gone&&p.a>0) p.a=Math.max(0,p.a-dt*4); });
+      f.potT=Math.min(1,(f.potT||0)+dt*2.2);
+      if(f.pot!=='pot0' && Math.random()<dt*(5+f.heat*14)) steam(485,215,200);
+      if(f.pot!=='pot0' && Math.random()<dt*(f.low?4:10+f.heat*30)){ const a=rand(0,Math.PI*2), r=Math.sqrt(Math.random()); G.parts.push({x:485+Math.cos(a)*230*r,y:345+Math.sin(a)*105*r,vx:0,vy:-6,g:0,life:.45,max:.45,c:'rgba(255,250,230,.9)',s:rand(2,4)}); } }
+  };
+});
+
+/* 6 — Bày món vào tô (cảnh có sẵn) */
+LV.push(()=>{
+  const setLayer=(L,n)=>{ L.f.layerPrev=L.f.layer; L.f.layer=n; L.f.layerT=0; };
+  const items=[ ghost('rau',{x:5,y:255,w:270,h:170},'tay_rau',150,'Rau sống',{hand:true}), ghost('mi',{x:765,y:195,w:195,h:135},'soi_trang',150,'Sợi mì'),
+    ghost('nhan',{x:440,y:190,w:290,h:112},'va_nhan',190,'Nhân gà, tôm',{anchor:[.27,.53]}), ghost('trung',{x:675,y:395,w:170,h:110},'trung_cat',110,'Trứng') ];
+  return { n:6, bg:'to0', intro:'to0', items, f:{egg:0,nuoc:0,layer:null,layerPrev:null,layerT:1},
+    zones:{ to:{x:485,y:430,rx:190,ry:110} },
+    steps:[
+      {type:'drop',hint:'Lót rau sống dưới đáy tô.',need:['rau'],zone:'to',onEach:L=>{ L.bg='to1'; }},
+      {type:'drop',hint:'Cho sợi mì vào tô.',need:['mi'],zone:'to',onEach:L=>{ L.bg='to2'; }},
+      {type:'drop',hint:'Dùng vá múc nhân gà, tôm lên mì.',need:['nhan'],zone:'to',onEach:L=>{ L.bg='to_nhan'; }},
+      {type:'drop',hint:'Thêm trứng vào tô.',need:['trung'],zone:'to',onEach:L=>{ L.f.egg=1; }},
+      {type:'hold',mode:'fill',hint:'Chan nước dùng vào tô, đến vạch xanh là xâm xấp vừa đủ.',zone:'to',zr:[.4,.64],noHand:true,
+        over:'Ngập tô rồi! Mì Quảng chỉ chan nước xâm xấp thôi.',onDone:L=>{ L.f.full=1; }}
+    ],
+    under(L){ const f=L.f;
+      spr('noi_ga',600,236,300);
+      const LX=485.6,LY=403.1,LW=393.75; if(f.layerPrev&&f.layerT<1) spr(f.layerPrev,LX,LY,LW); if(f.layer) spr(f.layer,LX,LY,LW,{alpha:f.layerPrev?f.layerT:Math.min(1,f.layerT*1.5)});
+      { const v=f.full?.55:(f.nuoc||0), a1=clamp((v-.03)/.15,0,1), a2=clamp((v-.3)/.12,0,1), a3=clamp((v-.6)/.06,0,1);
+        if(a1>0) spr('chan1',308+419.4/2,199.4+303.1/2,419.4,{alpha:a1}); if(a2>0) spr('chan2',308+419.4/2,199.4+303.1/2,419.4,{alpha:a2}); if(a3>0) spr('chan3',308+419.4/2,199.4+303.1/2,419.4,{alpha:a3}); }
+      if(f.egg) spr('trung_cat',600,420,100);
+      const over=Math.max(0,(f.nuoc||0)-.64)/.08, sp=f.spill||0;
+      if(over>0||sp>0){ const q=over>0?Math.min(1,over):Math.min(1,sp); spr('chan4',308+430.6/2,199.4+365.6/2,430.6,{alpha:q}); }
+
+
+      const s=cur(L); if(s&&s.type==='hold'&&!s.done){ const x=272, y0=560, hh=230, yv=v=>y0-v/.8*hh;
+        panel(x-12,y0-hh-8,24,hh+16,10,'rgba(58,29,12,.75)'); ctx.fillStyle='rgba(126,217,87,.85)'; ctx.fillRect(x-8,yv(s.zr[1]),16,yv(s.zr[0])-yv(s.zr[1]));
+        const v=Math.min(.8,s.v); ctx.fillStyle='#f0a63a'; ctx.fillRect(x-6,yv(v),12,y0-yv(v));
+        TS('vừa',x+16,(yv(s.zr[0])+yv(s.zr[1]))/2+5,15,'#d9ffc2','left',800); TS('ngập',x+16,yv(.76)+5,15,'#ffd0c0','left',800);
+        if(s.holding||s.v>0||(f.spill||0)>0) {} else spr('va_day',640,300,170,{rot:-.15}); } },
+
+    tick(L,dt){ const f=L.f; f.layerT=Math.min(1,(f.layerT||0)+dt*2.5); if(f.prevN>.68&&(f.nuoc||0)===0) f.spill=1.8; f.prevN=f.nuoc||0; if(f.spill>0) f.spill-=dt; if(Math.random()<dt*4) steam(585,200,70); }
+  };
+});
+
+/* 7 — Hoàn thành */
+LV.push(()=>{
+  const items=[ ghost('dauphong',{x:30,y:465,w:160,h:108},'dau_phong_gia',100,'Đậu phộng'), ghost('chanh',{x:48,y:388,w:120,h:76},'chanh_vat',80,'Chanh'),
+    ghost('ot',{x:170,y:505,w:132,h:88},'ot_lat',72,'Ớt'), ghost('dua',{x:865,y:172,w:66,h:150},'tay_dua',140,'Đũa',{hand:true}),
+    mk('hanhla','hanh_thai3',248,468,82,{label:'Hành lá'}) ];
+  const REQ=['chanh','banh'], BOWL={x:598,y:383}, BT={x:868,y:520};
+  const done=L=>REQ.every(k=>L.f.got[k]);
+  return { n:7, bg:'final_clean', intro:'final', items, f:{got:{},nut:[],hanh:[],ot:[],bt:0,lime:0,chips:0},
+    zones:{ to:{x:598,y:390,rx:220,ry:120}, banh:{x:BT.x-80,y:BT.y-60,w:160,h:120} },
+    steps:[
+      {type:'idle',hint:'Hoàn thiện tô mì: vắt chanh, bẻ bánh tráng. Đậu phộng, hành lá, ớt tuỳ khẩu vị nhé!'},
+      {type:'drop',hint:'Lấy đôi đũa trong lọ, đưa vào tô.',need:['dua'],zone:'to'},
+      {type:'stir',hints:['Trộn đều: xoay đũa trong tô, vòng 1/2.','Thơm quá! Xoay thêm vòng 2/2 rồi thưởng thức nào.'],zone:'to',turns:2,tool:'tay_dua',onTurn:()=>{ hearts(598,340); toast(Object.keys(G.over||{}).length?'Thơm quá! Nhưng nước dùng hơi mặn một chút.':'Thơm quá!','good'); },onDone:()=>hearts(598,330)}
+    ],
+    hintText(L,s){ if(L.si!==0) return null; const left=REQ.filter(k=>!L.f.got[k]).map(k=>({chanh:'chanh',banh:'bánh tráng mè'})[k]);
+      return left.length?'Hoàn thiện tô mì: còn '+left.join(', ')+'. Đậu phộng, hành lá, ớt tuỳ khẩu vị nhé!':'Xong rồi! Thêm đậu phộng, hành, ớt nếu thích, rồi bấm XONG.'; },
+    preDown(L,p){ if(L.si!==0||L.f.got.banh) return false; if(inZ(L.zones.banh,p)){ L.f.bt++; sfx('chop'); burst(BT.x,BT.y,['#f3d79a','#e0b867','#fff3d0'],14);
+        if(L.f.bt>=3){ L.f.bt=3; fly('bt_vun2',BT.x,BT.y,BOWL.x,BOWL.y-20,150,()=>{ L.f.chips=1; }); L.f.got.banh=1; } return true; } return false; },
+    preDrop(L,it,p){ if(it.id==='dua'){ if(L.si===0){ toast('Hoàn thiện tô mì xong rồi mới lấy đũa nhé!','info'); return true; } return false; }
+      if(L.si!==0) return false;
+      if(!inZ(L.zones.to,p)){ if(!it.ghost) it.ret=true; return true; }
+      const f=L.f; if(f.got[it.id]){ if(!it.ghost) it.ret=true; return true; } sfx('good');
+      if(it.id==='dauphong'){ for(let i=0;i<26;i++) f.nut.push({x:BOWL.x+rand(-140,140),y:BOWL.y+rand(-50,40),c:i%2?'#c8924a':'#e9c07c',t:rand(-.3,0)}); }
+      if(it.id==='hanhla'){ for(let i=0;i<9;i++) f.hanh.push({x:BOWL.x+rand(-130,130),y:BOWL.y+rand(-45,35),t:rand(-.3,0)}); it.vis=false; }
+      if(it.id==='chanh') f.lime=1.6;
+      if(it.id==='ot') for(let i=0;i<4;i++) f.ot.push({x:BOWL.x+rand(-120,120),y:BOWL.y+rand(-40,30),t:rand(-.3,0)});
+      f.got[it.id]=1; return true; },
+    under(L){ const f=L.f; spr('trung_cat',720,420,100);
+      f.nut.forEach(p=>{ const e=clamp(p.t/.3,0,1); if(e<=0) return; ell(p.x,p.y-(1-e)*50,4,3.2,p.c); });
+      f.hanh.forEach(p=>{ const e=clamp(p.t/.3,0,1); if(e<=0) return; const y=p.y-(1-e)*50; ell(p.x,y,6,5,'#3f8f2a'); ell(p.x,y,3.2,2.6,'#c9ee8a'); });
+      f.ot.forEach(p=>{ const e=clamp(p.t/.3,0,1); if(e<=0) return; const y=p.y-(1-e)*50; ell(p.x,y,8,6.5,'#7a160a'); ell(p.x,y,7,5.5,'#d8341e'); ell(p.x,y,3,2.4,'#f7d36a'); });
+      if(f.chips) [[BOWL.x-80,BOWL.y-30,.1],[BOWL.x+80,BOWL.y-10,-.2]].forEach(([x,y,r])=>spr('bt_vun2',x,y,115,{rot:r}));
+      if(!f.got.banh){ shadow(BT.x,BT.y+50,80,10); if(f.bt===0) spr('banh_trang_nuong',BT.x,BT.y,150); else spr(f.bt===1?'bt_doi':'bt_manh',BT.x,BT.y,f.bt===1?170:160); } },
+    over(L){ const f=L.f;
+      if(f.lime>0) spr('chanh_vat',BOWL.x+40,BOWL.y-100,110,{alpha:Math.min(1,f.lime/.3),rot:-.3});
+      if(L.si===0&&!G.card&&!cur(L).done&&L.adv<=0){ if(done(L)) button(740,560,190,56,'XONG ✓',()=>finish(L)); if(!f.got.banh) tag(inZ(L.zones.banh,G.ptr)?'Chạm để bẻ bánh tráng ('+f.bt+'/3)':'Bánh tráng mè',BT.x,BT.y+66); } },
+    tick(L,dt){ const f=L.f; [f.nut,f.hanh,f.ot].forEach(a=>a.forEach(p=>p.t+=dt));
+      if(f.lime>0){ f.lime-=dt; if(Math.random()<dt*14) G.parts.push({x:BOWL.x+30+rand(-10,10),y:BOWL.y-50,vx:rand(-10,10),vy:rand(20,60),g:500,life:.45,max:.45,c:'#f7e86a',s:4}); }
+      if(Math.random()<dt*5) steam(560,250,90); }
+  };
+});
+
+function startLevel(n){
+  if(n===5) G.over={};
+  G.lvl=n; G.mistakes[n]=0; const L=LV[n](); L.si=0; L.adv=0; G.level=L;
+  G.drag=null; G.stir=null; G.sw=null; G.parts=[]; G.toasts=[]; G.flash=null; G.fly=[]; G.modal=null; face('ba_point',0);
+  startStep(L,0); G.scene='play'; G.card={type:'intro'};
+}
+const stars = n => { const m=G.mistakes[n]; return m===0?3:m<=2?2:1; };
+
+/* ---------- input ---------- */
+function pos(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H}; }
+function onDown(p){
+  if(Math.hypot(p.x-soundPos().x,p.y-soundPos().y)<22){ G.sound=!G.sound; if(G.sound) sfx('tap'); return; }
+  for(const b of G.btns){ if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h){ sfx('tap'); b.act(); return; } }
+  if(G.modal) return;
+  if(G.scene!=='play'||G.card||G.level.endT>0) return;
+  if(G.drag&&G.drag.sel){ const it=G.drag.it; G.drag=null; dropItem(it); return; }
+  if(G.auto) return;
+  const L=G.level, s=cur(L);
+  G.cutPrev=p; G.downP={x:p.x,y:p.y}; G.downT=G.t;
+  if(L.preDown&&L.preDown(L,p)) return;
+  if(s&&!s.done&&L.adv<=0){
+    if(s.type==='timing'){ judge(L,s); return; }
+    if(s.type==='cutlines'&&L.clickCut&&L.clickCut(L,p)) return;
+    if(s.type==='skim'){ const f=L.f, vot=itm(L,'vot'); const fo=f.foam.find(q=>!q.gone&&Math.hypot(q.x-p.x,q.y-p.y)<55);
+      if(fo){ fo.gone=1; f.full=(f.full||0)+1; vot.img='vot_day'; sfx('pick'); burst(fo.x,fo.y,['#fffaf0','#e8dcc4'],10); flash('vot_day',fo.x+40,fo.y-10,120); return; }
+      if(f.full&&inZ(L.zones.batbo,p)){ skimDump(L,vot); return; } }
+    if(s.type==='spots'){ s.spots.forEach((sp,i)=>{ if(!s.got.has(i)&&inZ(sp,p)){ s.got.add(i); sfx('tap'); s.onHit&&s.onHit(L,sp,i); if(s.got.size>=s.spots.length) finish(L); } }); return; }
+    const z=s.zone&&L.zones[s.zone];
+    if(z&&inZ(z,p)&&s.type!=='drop'){
+      if(s.type==='tap'){ s.p++; sfx('tap'); s.onTap&&s.onTap(L,s.p); if(s.p>=s.count) finish(L); return; }
+      if(s.type==='stir'){ const c=zc(z); G.stir={a:Math.atan2(p.y-c.y,p.x-c.x),acc0:s.acc}; return; }
+      if(s.type==='swipe'){ G.sw={anchor:p.y,peak:p.y,dir:0,counted:false,moved:0}; return; }
+      if(s.type==='hold'){ if(!s.block){ s.holding=true; s.pressT=G.t; s.vStart=s.v; } return; }
+    }
+  }
+  for(let i=L.items.length-1;i>=0;i--){
+    const it=L.items[i]; if(!it.vis&&!it.ghost) continue;
+    if(inZ(itemBox(it),p)){
+      if(L.si<it.lock){ if(it.lock<99) toast('Chưa đến lúc dùng '+(it.label||'thứ này').toLowerCase()+'.','info'); return; }
+      G.drag={it}; it.ret=false; if(!it.ghost){ L.items.splice(i,1); L.items.push(it); } sfx('pick'); return;
+    }
+  }
+}
+function stirAdvance(L,s,d,px,py){
+  s.acc+=d; s.p=s.acc/(Math.PI*2); s.onProg&&s.onProg(L,Math.min(1,s.p/s.turns)); if(Math.random()<.12) burst(px,py,['#ffffff','#fff1c9'],2,4);
+  const k=Math.floor(s.p+1e-6); if(k>s.turnK && k<s.turns){ s.turnK=k; sfx('good'); const c2=zc(L.zones[s.zone]); burst(c2.x,c2.y,[C.gold,'#ffffff','#bfe6fb'],12); s.onTurn&&s.onTurn(L,k); }
+  if(s.p>=s.turns-1e-6){ G.stir=null; G.auto=null; finish(L); } }
+function doCut(L,s,px,py){ s.p++; sfx('chop'); burst(px,py,['#ffffff',C.gold],6); G.chopT=.25;
+  const z=L.zones[s.zone]; s.onCut&&s.onCut(L,s.p,z.x+z.w*s.p/(s.count+1)); if(s.p>=s.count){ G.sw=null; finish(L); } }
+function skimDump(L,it){ L.f.binN=(L.f.binN||0)+L.f.full; L.f.full=0; it.img='vot_sach'; sfx('good'); burst(150,570,['#fffaf0','#e8dcc4'],12); flash('vot_sach',150,520,120);
+  if(L.f.foam.every(q=>q.gone)) finish(L,true); }
+function onMove(p){
+  const L=G.level; if(!L||G.scene!=='play') return;
+  if(G.drag){ const it=G.drag.it; if(!it.ghost){ it.x=p.x; it.y=p.y; }
+    const s=cur(L); if(s&&s.type==='skim'&&it.id==='vot'){ L.f.foam.forEach(f=>{ if(!f.gone&&Math.hypot(f.x-p.x,f.y-p.y)<55){
+      f.gone=1; L.f.full=(L.f.full||0)+1; it.img='vot_day'; sfx('pick'); burst(f.x,f.y,['#fffaf0','#e8dcc4'],10); } }); }
+    return; }
+  const s=cur(L); if(!s||s.done) return;
+  if(s.type==='cutlines'&&G.cutPrev&&L.adv<=0){ L.cutTest(L,G.cutPrev,p); G.cutPrev=p; }
+  if(G.stir&&s.type==='stir'){
+    const c=zc(L.zones[s.zone]);
+    const a=Math.atan2(p.y-c.y,p.x-c.x); let d=a-G.stir.a; while(d>Math.PI) d-=Math.PI*2; while(d<-Math.PI) d+=Math.PI*2;
+    if(Math.abs(d)<1.2 && Math.hypot(p.x-c.x,p.y-c.y)>12) stirAdvance(L,s,Math.abs(d),p.x,p.y);
+    if(G.stir) G.stir.a=a;
+  }
+  if(G.sw&&s.type==='swipe'){
+    const sw=G.sw; sw.moved=Math.max(sw.moved,Math.abs(p.y-sw.anchor));
+    if(sw.dir===0){ if(Math.abs(p.y-sw.anchor)>6){ sw.dir=Math.sign(p.y-sw.anchor); sw.peak=p.y; } }
+    else if((p.y-sw.peak)*sw.dir>0) sw.peak=p.y;
+    else if((sw.peak-p.y)*sw.dir>12){ sw.anchor=sw.peak; sw.dir=-sw.dir; sw.peak=p.y; sw.counted=false; }
+    if(sw.dir!==0 && !sw.counted && Math.abs(sw.peak-sw.anchor)>=s.len){ sw.counted=true; sw.any=1; doCut(L,s,p.x,p.y); }
+  }
+}
+function onUp(){
+  const L=G.level;
+  const mv=G.downP?Math.hypot(G.ptr.x-G.downP.x,G.ptr.y-G.downP.y):99;
+  if(G.drag){ const it=G.drag.it; if(mv<8&&!G.drag.sel){ G.drag.sel=true; return; } G.drag=null; dropItem(it); }
+  if(G.stir){ const s=cur(L); if(s&&s.type==='stir'&&!s.done&&Math.abs(s.acc-G.stir.acc0)<.35){ const c=zc(L.zones[s.zone]); G.auto={left:(Math.floor(s.acc/(Math.PI*2)+1e-6)+1)*Math.PI*2-s.acc,a:Math.atan2(G.ptr.y-c.y,G.ptr.x-c.x)}; } G.stir=null; }
+  if(G.sw){ const s=cur(L); if(s&&s.type==='swipe'&&!s.done&&!G.sw.any&&G.sw.moved<10) doCut(L,s,G.ptr.x,G.ptr.y); G.sw=null; }
+  if(L&&G.scene==='play'){ const s=cur(L);
+    if(s&&s.type==='hold'){ const was=s.holding; s.holding=false;
+      if(s.block){ s.block=false; return; }
+      if(s.mode==='fill'&&was&&!s.done&&G.t-s.pressT<.3){ s.v=(s.vStart||0)+.21; if(s.v>s.zr[1]+.08){ mistake(L,s.over); s.v=0; return; } sfx('pick'); burst(485,420,['#f2b84a','#ffd98a'],10); }
+      if(s.mode==='fill'&&was&&!s.done){ if(s.v>=s.zr[0]&&s.v<=s.zr[1]){ toast('Vừa xâm xấp, chuẩn vị!','good'); finish(L); } else if(s.v>0) toast('Còn ít nước, chan thêm chút nữa.','info'); }
+    } }
+}
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); try{cv.setPointerCapture(e.pointerId);}catch(_){} audioInit(); const p=pos(e); Object.assign(G.ptr,p,{down:true,inside:true}); onDown(p); });
+cv.addEventListener('pointermove',e=>{ const p=pos(e); G.ptr.x=p.x; G.ptr.y=p.y; G.ptr.inside=true;
+  if(e.pointerType==='mouse'&&!G.mouse){ G.mouse=true; cv.classList.add('mouse'); } if(G.ptr.down||(G.drag&&G.drag.sel)) onMove(p); });
+cv.addEventListener('pointerleave',()=>{ G.ptr.inside=false; });
+const up=e=>{ if(!G.ptr.down) return; const p=pos(e); G.ptr.x=p.x; G.ptr.y=p.y; G.ptr.down=false; if(e.pointerType!=='mouse') G.ptr.inside=false; onUp(p); };
+cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
+cv.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&G.btns[0]){ e.preventDefault(); audioInit(); G.btns[0].act(); } });
+
+/* ---------- update ---------- */
+function update(dt){
+  G.shake=Math.max(0,G.shake-dt); if(G.faceT>0){ G.faceT-=dt; if(G.faceT<=0) G.face='ba_point'; }
+  G.toasts.forEach(t=>t.t+=dt); G.toasts=G.toasts.filter(t=>t.t<2.6);
+  for(const p of G.parts){ p.life-=dt; p.vy+=p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; }
+  G.parts=G.parts.filter(p=>p.life>0); if(G.parts.length>260) G.parts.splice(0,G.parts.length-260);
+  if(G.scene==='final'&&!reduce&&Math.random()<dt*14) G.parts.push({x:rand(0,W),y:-10,vx:rand(-30,30),vy:rand(60,140),g:30,life:4,max:4,c:['#ffc83a','#ff7a5c','#7ed957','#5fb0ff','#ff5d7a'][(Math.random()*5)|0],s:rand(4,7)});
+  if(G.scene!=='play') return;
+  const L=G.level;
+  for(const it of L.items){ if(it.ret&&G.drag?.it!==it){ const k=Math.min(1,dt*12); it.x+=(it.hx-it.x)*k; it.y+=(it.hy-it.y)*k; if(Math.hypot(it.hx-it.x,it.hy-it.y)<.5){ it.x=it.hx; it.y=it.hy; it.ret=false; } } }
+  L.tick&&L.tick(L,dt); L.fadeT=(L.fadeT||0)+dt;
+  if(L.endT>0){ L.endT-=dt; if(Math.random()<dt*6) burst(rand(200,760),rand(150,400),[C.gold,'#ff9a3a',C.cream],6,5); if(L.endT<=0){ G.card={type:'done'}; } } if(G.flash){ G.flash.t+=dt; if(G.flash.t>.9) G.flash=null; }
+  if(G.fly){ G.fly.forEach(f=>{ f.t+=dt; if(f.t>=.6&&f.cb){ f.cb(); f.cb=null; } }); G.fly=G.fly.filter(f=>f.t<.6); }
+  if(G.chopT>0) G.chopT-=dt;
+  if(G.card) return;
+  L.stepT=(L.stepT||0)+dt;
+  if(G.auto){ const s=cur(L); if(!s||s.type!=='stir'||s.done) G.auto=null; else { const d=Math.min(G.auto.left,dt*7); G.auto.left-=d; G.auto.a+=d; const z=L.zones[s.zone], c=zc(z), Rr=(z.r||z.rx||80)*.55;
+    G.auto.px=c.x+Math.cos(G.auto.a)*Rr; G.auto.py=c.y+Math.sin(G.auto.a)*Rr*.6; stirAdvance(L,s,d,G.auto.px,G.auto.py); if(G.auto&&G.auto.left<=1e-4) G.auto=null; } }
+  if(L.adv>0){ L.adv-=dt; if(L.adv<=0) startStep(L,L.si+1); return; }
+  const s=cur(L); if(!s||s.done) return;
+  if(s.type==='wait'){ s.p+=dt/s.dur; if(s.p>=1) finish(L); }
+  else if(s.type==='cond'){ if(s.test(L)) finish(L); }
+  else if(s.type==='timing'){ s.p+=dt/s.dur; s.onProgress&&s.onProgress(L,s.p); if(s.p>1.06){ mistake(L,s.late); s.p=0; } }
+  else if(s.type==='hold'){
+    if(s.mode==='keep'){ if(s.holding) s.fix=null; s.v=s.fix!=null?lerp(s.v,s.fix,Math.min(1,dt*5)):clamp(s.v+(s.holding?.42:-.32)*dt,0,1); if(s.v>=s.zr[0]&&s.v<=s.zr[1]) s.p+=dt;
+      if(s.v>(s.max||.92)){ mistake(L,s.over); s.v=s.v0||.3; } L.f.heat=s.v; if(s.p>=s.need) finish(L); }
+    else { if(s.holding){ s.v+=.24*dt; if(s.v>s.zr[1]+.08){ mistake(L,s.over); s.v=0; s.holding=false; s.block=true; } } L.f.nuoc=s.v; }
+  }
+}
+
+/* ---------- step UI ---------- */
+function dashZone(z){ const off=G.t*40; ctx.save(); ctx.setLineDash([12,9]); ctx.lineDashOffset=-off; ctx.lineWidth=4; ctx.strokeStyle='rgba(255,210,70,.95)';
+  ctx.shadowColor='rgba(255,190,40,.8)'; ctx.shadowBlur=10; ctx.beginPath();
+  if(z.rx!=null) ctx.ellipse(z.x,z.y,z.rx,z.ry,0,0,Math.PI*2); else if(z.r!=null) ctx.arc(z.x,z.y,z.r,0,Math.PI*2); else rr(z.x,z.y,z.w,z.h,16);
+  ctx.stroke(); ctx.restore(); }
+function arrow(x,y){ y+=Math.sin(G.t*6)*5; ctx.beginPath(); ctx.moveTo(x-16,y-18); ctx.lineTo(x+16,y-18); ctx.lineTo(x,y); ctx.closePath(); ctx.fillStyle=C.gold; ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=C.ink; ctx.stroke(); }
+function pill(s,x,y,col){ ctx.font=font(18,800); const w=ctx.measureText(s).width+24; panel(x-w/2,y-16,w,30,15,col||C.orange,C.ink,2.5); T(s,x,y+6,18,'#fff','center',800); }
+function drawBar(b,p,good,label,over){
+  panel(b.x-4,b.y-4,b.w+8,b.h+8,10,'rgba(58,29,12,.85)'); ctx.fillStyle='#f3e3c4'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  ctx.fillStyle=C.green2; ctx.fillRect(b.x+good[0]*b.w,b.y,(good[1]-good[0])*b.w,b.h);
+  if(over){ ctx.fillStyle='#ff7a5c'; ctx.fillRect(b.x+over*b.w,b.y,(1-over)*b.w,b.h); }
+  const mx=b.x+Math.min(1,p)*b.w; panel(mx-4,b.y-8,8,b.h+16,3,C.gold,C.ink,2);
+  if(label) TS(label,b.x+b.w/2,b.y-12,17,'#fff','center',800);
+}
+function stepUnder(L){
+  const s=cur(L); if(!s||s.done||L.adv>0||G.card) return; const z=s.zone&&L.zones[s.zone];
+  if(s.type==='drop'){ dashZone(z); if(!s.noArrow) s.need.forEach(id=>{ const it=itm(L,id); if(it&&!s.got.has(id)&&G.drag?.it!==it){ const b=itemBox(it); arrow(b.x+b.w/2,b.y-8); } }); }
+  if(s.type==='tap'){ dashZone(z); const c=zc(z); pill('CHẠM'+(s.count>1?' '+s.p+'/'+s.count:''),c.x,(z.y-(z.r||z.ry||0))-14); }
+  if(s.type==='stir'){ dashZone(z); const c=zc(z), R=(z.r||z.rx||80)+14, Ry=(z.r||z.ry||80)+14; const n=Math.floor(Math.min(1,s.p/s.turns)*40);
+    for(let i=0;i<n;i++){ const a=-Math.PI/2+i/40*Math.PI*2; ell(c.x+Math.cos(a)*R,c.y+Math.sin(a)*Ry,5,5,C.green2); }
+    pill('XOAY '+Math.min(s.turns,Math.floor(s.p))+'/'+s.turns,c.x,c.y-Ry-16); }
+  if(s.type==='swipe'){ dashZone(z); for(let i=0;i<3;i++){ const x=z.x+z.w*(i+1)/4, y=z.y+10+((G.t*60+i*20)%(z.h-30)); ctx.fillStyle='rgba(255,210,70,.95)'; ctx.beginPath(); ctx.moveTo(x-9,y); ctx.lineTo(x+9,y); ctx.lineTo(x,y+12); ctx.fill(); }
+    pill('CẮT '+s.p+'/'+s.count,z.x+z.w/2,z.y-14); }
+  if(s.type==='hold'){ dashZone(z); if(!s.holding){ const c=zc(z); pill(s.mode==='fill'?'CHAN NƯỚC DÙNG':'NHẤN GIỮ',c.x,c.y); } }
+  if(L.stepT<2.4&&!G.drag&&!G.auto) demoHand(L,s);
+  if(s.type==='cond'&&L.n===4&&!L.f.pan){ const c=itm(L,'chao'); arrow(c.x,c.y-80); dashZone(L.zones.bep); }
+  if(s.type==='skim'){ if(L.f.full) dashZone(L.zones.batbo); L.f.foam.forEach(q=>{ if(!q.gone) dashZone({x:q.x,y:q.y,r:48}); }); }
+  if(s.type==='spots'&&!sc(L)){ s.spots.forEach((sp,i)=>{ if(!s.got.has(i)) dashZone(sp); }); }
+}
+function demoHand(L,s){ const t=L.stepT, a=t<.3?t/.3:t>2.0?Math.max(0,(2.4-t)/.4):1; let x,y,press=((t*2.2)%1)<.35;
+  if(s.type==='drop'){ const id=s.need.find(i=>!s.got.has(i)); const it=id&&itm(L,id); const z=L.zones[s.zone]; if(!it||!z) return; const b=itemBox(it), c=zc(z), e=clamp((t-.3)/1.4,0,1);
+    x=lerp(b.x+b.w/2,c.x,e); y=lerp(b.y+b.h/2,c.y,e); press=e>0&&e<1; }
+  else if(s.type==='skim'){ const f=L.f.foam.find(q=>!q.gone); if(!f) return; x=f.x; y=f.y; }
+  else if(s.type==='stir'){ const z=L.zones[s.zone]; if(!z) return; const c=zc(z), Rr=(z.r||z.rx||80)*.5, a=t*4.5; x=c.x+Math.cos(a)*Rr; y=c.y+Math.sin(a)*Rr*.6; press=true; ctx.save(); ctx.globalAlpha=a*0+.5*Math.min(1,t/.3); ctx.setLineDash([6,6]); ctx.strokeStyle='rgba(255,230,120,.9)'; ctx.lineWidth=3; ctx.beginPath(); ctx.ellipse(c.x,c.y,Rr,Rr*.6,0,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
+  else if(s.type==='cutlines'||s.type==='idle'||s.type==='wait'||s.type==='cond'){ return; }
+  else { const z=s.zone&&L.zones[s.zone]; if(!z) return; const c=zc(z); x=c.x; y=c.y; }
+  ctx.save(); ctx.globalAlpha=a*.9; if(press){ ell(x,y,18,18,'rgba(255,220,90,.45)'); } spr('tay_cham',x+22,y+(press?40:30),80,{ax:.6,ay:.04}); ctx.restore(); }
+function stepOver(L){
+  const s=cur(L); if(!s||s.done||G.card) return;
+  if(s.type==='timing'){ drawBar(s.bar,s.p,s.good,s.label); if(((G.t*3)|0)%2) pill('CHẠM!',s.bar.x+s.bar.w/2,s.bar.y+s.bar.h+26,C.green); }
+  if(s.type==='hold'&&s.mode==='keep'){ drawBar(s.bar,s.v,s.zr,null,s.max||.92); const zone=s.v<.4?0:s.v<.75?1:2;
+    [['bep1','nhỏ',.18],['bep2','vừa',.585],['bep3','to',.95]].forEach(([n,l,f],i)=>{ const x=s.bar.x+f*s.bar.w; spr(n,x,s.bar.y-46,i===zone?78:62,{alpha:i===zone?1:.5}); TS('Lửa '+l,x,s.bar.y-6,15,i===zone?'#fff':'#f3dcc0','center',800); }); TS((s.doneLabel||'Đã hầm')+': '+Math.min(s.need,s.p).toFixed(1)+' / '+s.need+' giây',s.bar.x+s.bar.w/2,s.bar.y+44,17,'#fff','center',800); }
+  if(s.type==='wait'){ const b=s.bar||{x:330,y:250,w:300,h:16}; drawBar(b,s.p,[0,0],s.label||'ĐANG NGÂM GẠO'); }
+}
+
+/* ---------- HUD ---------- */
+function soundPos(){ return (G.scene==='play'&&G.level&&G.level.ui==='tl'&&!G.card)?{x:240,y:27}:{x:930,y:28}; }
+function drawSound(){ const sp=soundPos(), x=sp.x, y=sp.y; ell(x,y,20,20,'rgba(58,29,12,.85)'); ctx.fillStyle=C.cream; ctx.fillRect(x-10,y-5,6,10); ctx.beginPath(); ctx.moveTo(x-4,y-5); ctx.lineTo(x+3,y-11); ctx.lineTo(x+3,y+11); ctx.lineTo(x-4,y+5); ctx.fill();
+  ctx.lineWidth=2.5; ctx.strokeStyle=G.sound?C.gold:'#ff7a5c'; ctx.beginPath();
+  if(G.sound){ ctx.arc(x+4,y,7,-.9,.9); ctx.stroke(); ctx.beginPath(); ctx.arc(x+4,y,12,-.9,.9); } else { ctx.moveTo(x+6,y-6); ctx.lineTo(x+14,y+6); ctx.moveTo(x+14,y-6); ctx.lineTo(x+6,y+6); } ctx.stroke(); }
+function drawHUD(L){
+  const S=sc(L), x0=L.ui==='tl'?20:S?724:700, y=L.ui==='tl'?14:S?16:62;
+  if(!S){ panel(700,10,198,40,12,C.cream,C.border,3); if(L.n>0){ panel(706,15,30,30,8,C.orange,C.ink,2); T(String(L.n),721,38,22,'#fff','center',800); }
+    let t=TITLES[L.n]; ctx.font=font(17,800); while(ctx.measureText(t).width>150) t=t.slice(0,-2)+'…'; T(t,L.n>0?742:712,37,17,'#c2410c','left',800); }
+  panel(x0,y,198-(S?24:0),26,13,'rgba(58,29,12,.8)');
+  for(let i=0;i<8;i++){ const cx=x0+16+i*15; ell(cx,y+13,5.5,5.5, i<L.n?C.gold : i===L.n?(((G.t*3)|0)%2?'#ff9a3a':C.gold):'#7a4a2a'); }
+  const m=G.mistakes[L.n]; T('Lỗi: '+m,x0+136,y+19,15,m?'#ffb4a0':C.cream,'left',700);
+}
+function drawBubble(L){
+  const s=cur(L); if(!s) return;
+  let txt=(L.hintText&&L.hintText(L,s))||(s.hints? s.hints[Math.min(s.type==='stir'?s.turnK:s.p, s.hints.length-1)] : s.hint); if(s.type==='drop'&&s.need.length>1) txt+=' ('+s.got.size+'/'+s.need.length+')';
+  if(s.type==='spots') txt+=' ('+s.got.size+'/'+s.spots.length+')';
+  if(s.type==='skim'&&L.f.foam.length) txt+=' ('+L.f.foam.filter(q=>q.gone).length+'/'+L.f.foam.length+')';
+  if(L.adv>0||s.done) txt='Giỏi lắm! Làm tiếp nào.'; else if(L.steps.length>1) txt='Bước '+(L.si+1)+'/'+L.steps.length+': '+txt;
+  if(!sc(L)){
+    spr(G.face,62,66,118);
+    panel(124,12,566,70,16,C.cream,C.border,3); ctx.beginPath(); ctx.moveTo(126,40); ctx.lineTo(108,52); ctx.lineTo(126,58); ctx.closePath(); ctx.fillStyle=C.cream; ctx.fill();
+    ctx.strokeStyle=C.border; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(126,40); ctx.lineTo(108,52); ctx.lineTo(126,58); ctx.stroke(); ctx.fillStyle=C.cream; ctx.fillRect(124.5,41,4,16);
+    for(const sz of [21,19,17]){ const lines=wrap(txt,536,sz,700); if(lines.length<=2){ const y0=lines.length===1?54:41; lines.forEach((ln,i)=>T(ln,140,y0+i*(sz+3),sz,C.ink,'left',700)); break; } }
+  } else {
+    let lines; let sz=20; for(sz of [20,18,16]){ lines=wrap(txt,560,sz,700); if(lines.length<=2) break; }
+    const bw=Math.min(640,Math.max(...lines.map(l=>{ctx.font=font(sz,700); return ctx.measureText(l).width;}))+100), bh=lines.length>1?62:46, bx=480-bw/2, by=H-bh-8;
+    panel(bx,by,bw,bh,16,'rgba(255,244,220,.96)',C.border,3); spr(G.face,bx+34,by+bh/2,62);
+    lines.forEach((ln,i)=>T(ln,bx+74,by+(lines.length>1?26:30)+i*(sz+4),sz,C.ink,'left',700));
+  }
+}
+function drawToasts(L){
+  const S=L&&sc(L), base=S?H-130:100;
+  G.toasts.forEach((t,i)=>{ const a=t.t<2.1?1:Math.max(0,1-(t.t-2.1)/.5); ctx.save(); ctx.globalAlpha=a; ctx.font=font(19,700);
+    const w=Math.min(900,ctx.measureText(t.msg).width+30), x=480-w/2, y=base+i*40*(S?-1:1);
+    panel(x,y,w,34,17,t.kind==='bad'?C.red:t.kind==='good'?C.green:'#7a3e16','rgba(0,0,0,.35)',2); T(t.msg,480,y+24,19,'#fff','center',700); ctx.restore(); });
+}
+function drawParts(){ for(const p of G.parts){ const a=Math.max(0,p.life/p.max); ctx.globalAlpha=p.soft?a*.35:a;
+  if(p.heart){ ctx.font=font(p.s*2,800); ctx.fillStyle=p.c; ctx.textAlign='center'; ctx.fillText('♥',p.x,p.y); }
+  else ell(p.x,p.y,p.s*(p.soft?(1.6-a*.6):1),p.s*(p.soft?(1.6-a*.6):1),p.c); } ctx.globalAlpha=1; }
+
+/* ---------- hand cursor ---------- */
+const HANDS = { tay_tha2:[100,.4,.07], tay_cham:[95,.6,.04], tay_cam:[100,.5,.28], tay_dao:[118,.32,.2], tay_dua:[130,.08,.06], tay_xeng:[140,.45,.16], tay_va:[102,.22,.12], tay_xoe_r:[120,.5,.42], tay_rau:[140,.42,.28], tay_ca:[200,.12,.22] };
+function hand(n,x,y,o){ const h=HANDS[n]; if(!h) return; spr(n,x,y,h[0],Object.assign({ax:h[1],ay:h[2]},o||{})); }
+function hoverCursor(L){
+  const P=G.ptr; if(G.btns.some(b=>P.x>=b.x&&P.x<=b.x+b.w&&P.y>=b.y&&P.y<=b.y+b.h)||Math.hypot(P.x-soundPos().x,P.y-soundPos().y)<22) return 'pointer';
+  if(!L||G.card) return 'default'; const s=cur(L);
+  if(L.items.some(it=>(it.vis||it.ghost)&&L.si>=it.lock&&inZ(itemBox(it),P))) return 'grab';
+  if(s&&!s.done&&s.zone&&s.type!=='drop'&&inZ(L.zones[s.zone],P)) return 'pointer';
+  if(s&&s.type==='spots'&&s.spots.some((sp,i)=>!s.got.has(i)&&inZ(sp,P))) return 'pointer';
+  return 'default';
+}
+function drawCursor(L){
+  const shown=handCursor(L); const c=shown?'none':hoverCursor(L); if(cv.style.cursor!==c) cv.style.cursor=c;
+}
+function handCursor(L){
+  if(!(G.ptr.inside&&(G.mouse||G.ptr.down))) return false; const P=G.ptr;
+  if(G.drag){ const it=G.drag.it;
+    if(it.hand) hand(it.img,P.x,P.y);
+    else if(it.anchor) spr(it.img,P.x,P.y,it.w,{ax:it.anchor[0],ay:it.anchor[1]});
+    else { const w=it.w, hh=sh(it.img,w); spr(it.img,P.x,P.y,w); hand('tay_cam',P.x+6,P.y+hh*.12); }
+    return true; }
+  const s=L&&cur(L);
+  if(s&&G.auto&&s.tool){ hand(s.tool,G.auto.px,G.auto.py); return true; }
+  if(G.chopT>0){ hand('tay_dao',P.x,P.y+(.25-G.chopT)*80); return true; }
+  if(s&&P.down&&!G.card){
+    if(G.stir&&s.tool){ hand(s.tool,P.x,P.y); return true; }
+    if(G.sw||s.type==='cutlines'){ hand('tay_dao',P.x,P.y); return true; }
+    if(s.type==='hold'&&s.holding&&s.tool){ hand(s.tool,P.x,P.y); return true; }
+    if(s.type==='hold'&&s.noHand) return true;
+    if(s.type==='tap'||s.type==='spots'||s.type==='timing'||s.type==='hold'){ hand('tay_cham',P.x,P.y); return true; }
+  }
+  return false;
+}
+
+/* ---------- scenes ---------- */
+function button(x,y,w,h,label,act,col){
+  panel(x,y+5,w,h,h/2,'#1f5e12'); const g=ctx.createLinearGradient(0,y,0,y+h); g.addColorStop(0,col?col[0]:'#8be04e'); g.addColorStop(1,col?col[1]:'#3f9e22');
+  panel(x,y,w,h,h/2,g,'#1f4a10',3); rr(x+8,y+5,w-16,h*.32,h*.16); ctx.fillStyle='rgba(255,255,255,.28)'; ctx.fill();
+  TS(label,x+w/2,y+h/2+9,26,'#fff','center',800,'#1f4a10'); G.btns.push({x,y:y-4,w,h:h+12,act});
+}
+function full(n){ if(ready(n)) ctx.drawImage(IMG[n],0,0,W,H); else { ctx.fillStyle='#6b3412'; ctx.fillRect(0,0,W,H); } }
+function drawLoading(){ ctx.fillStyle='#3a1d0c'; ctx.fillRect(0,0,W,H); const p=loaded/ASSETS.length;
+  TS('Đầu Bếp Tí Hon',480,280,54,C.gold,'center',800); panel(280,320,400,22,11,'#5a2e12'); panel(280,320,Math.max(22,400*p),22,11,'#ff9a3a');
+  T('Đang dọn bếp... '+Math.round(p*100)+'%',480,380,20,C.cream,'center',700);
+  if(loaded>=ASSETS.length && G.fontsOK) G.scene='title'; }
+function drawTitle(){
+  full('title'); const pulse=.5+.5*Math.sin(G.t*4);
+  ctx.save(); ctx.globalAlpha=.35+pulse*.4; ctx.lineWidth=6; ctx.strokeStyle='#fffbd0'; rr(306,500,322,100,30); ctx.stroke(); ctx.restore();
+  G.btns.push({x:309,y:505,w:316,h:92,act:()=>{ G.mistakes=[0,0,0,0,0,0,0,0]; G.over={}; startLevel(0); }});
+  panel(330,612,300,24,12,'rgba(58,29,12,.7)'); T('Mở đầu + 7 màn · kéo, thả, chạm, xoay',480,630,15,C.cream,'center',700);
+  panel(20,592,150,40,20,'rgba(58,29,12,.85)',C.gold,2); T('☰ Chọn màn',95,618,18,C.cream,'center',800); G.btns.push({x:20,y:592,w:150,h:40,act:()=>{ G.modal={type:'select'}; }});
+}
+function drawIntro(L){
+  full(L.intro||'intro'+L.n);
+  const g=ctx.createLinearGradient(0,H-120,0,H); g.addColorStop(0,'rgba(42,22,9,0)'); g.addColorStop(1,'rgba(42,22,9,.85)'); ctx.fillStyle=g; ctx.fillRect(0,H-120,W,120);
+  TS(L.n===0?'MỞ ĐẦU':'MÀN '+L.n+' / 7',30,H-48,20,C.gold,'left',800); TS(TITLES[L.n],30,H-20,30,'#fff','left',800);
+  button(W-250,H-84,220,62,'BẮT ĐẦU ▶',()=>{ G.card=null; });
+}
+function drawDone(L){
+  ctx.fillStyle='rgba(30,14,4,.62)'; ctx.fillRect(0,0,W,H);
+  panel(170,70,620,500,26,C.cream,C.border,5); panel(182,82,596,476,20,'rgba(0,0,0,0)','#f0b77a',2);
+  spr('ba_cheer',265,215,190);
+  TS('HOÀN THÀNH!',560,140,46,'#ff8a1e','center',800,'#6b2a08'); T(TITLES[L.n],560,176,22,C.brown,'center',700);
+  const st=stars(L.n); for(let i=0;i<3;i++) star(490+i*70,232,28,i<st);
+  const m=G.mistakes[L.n]; T(m?'Số lỗi: '+m:'Không sai lỗi nào!',560,292,20,C.ink,'center',700);
+  panel(210,322,540,140,16,'#ffe2ad',C.orange,2.5); T('EM CÓ BIẾT?',232,352,18,'#c2410c','left',800);
+  wrap(FACTS[L.n],500,20,600).slice(0,4).forEach((ln,i)=>T(ln,232,380+i*25,20,C.ink,'left',600));
+  button(340,480,280,62,L.n<7?'MÀN TIẾP THEO ▶':'XEM KẾT QUẢ ▶',()=>{ G.card=null; if(L.n<7) startLevel(L.n+1); else { G.scene='final'; G.parts=[]; sfx('win'); } });
+}
+function drawInfo(L){
+  ctx.fillStyle='rgba(30,14,4,.6)'; ctx.fillRect(0,0,W,H);
+  panel(70,40,820,560,26,C.cream,C.border,5); panel(82,52,796,536,20,'rgba(0,0,0,0)','#f0b77a',2);
+  spr('ba_cheer',190,190,200);
+  TS('MÌ QUẢNG',560,108,48,'#ff8a1e','center',800,'#6b2a08'); T('Hương vị quê hương Quảng Nam',560,140,22,C.brown,'center',700);
+  const paras=['Mì Quảng là món ăn nổi tiếng của Quảng Nam và Đà Nẵng. Người dân nơi đây ăn mì Quảng vào bữa sáng, bữa trưa, trong ngày giỗ, ngày Tết và khi đón khách quý.',
+    'Nét riêng của mì Quảng là sợi mì to bản làm từ gạo, nước dùng ít mà đậm đà, chỉ chan xâm xấp. Ăn kèm rau sống, đậu phộng rang, bánh tráng mè nướng giòn, vắt chanh và thêm ớt.',
+    'Mỗi nhà có một cách nấu riêng: mì Quảng gà, tôm thịt, cá lóc, ếch... nhưng đều chung một hương vị thân thương.'];
+  let y=180; paras.forEach(pa=>{ wrap(pa,560,18,600).forEach(ln=>{ T(ln,300,y,18,C.ink,'left',600); y+=24; }); y+=8; });
+  panel(110,y+4,740,78,16,'#ffe2ad',C.orange,2.5);
+  wrap('Em đã là một đầu bếp tí hon rồi đó! Cuối tuần này, em hãy thử nấu mì Quảng cùng bố mẹ, ông bà và mời cả nhà cùng thưởng thức nhé!',690,19,700).forEach((ln,i)=>T(ln,130,y+34+i*25,19,'#8a2d06','left',700));
+  button(220,522,250,58,'CHƠI LẠI ↺',()=>{ G.mistakes=[0,0,0,0,0,0,0,0]; G.over={}; startLevel(0); }); button(490,522,250,58,'TRANG ĐẦU',()=>{ G.scene='title'; },['#ffb36b','#e8601c']);
+}
+function navBtn(x,y,icon,act){ ell(x,y,20,20,'rgba(58,29,12,.85)'); T(icon,x,y+7,20,C.cream,'center',800); G.btns.push({x:x-20,y:y-20,w:40,h:40,act}); }
+function drawNav(){ const L=G.level; if(!L) return; const tl=L.ui==='tl'&&!G.card, P=i=>tl?[286+i*46,27]:[930,74+i*44];
+  navBtn(...P(0),'↺',()=>{ G.modal={type:'confirm',msg:'Làm lại màn này từ đầu?',act:()=>startLevel(L.n)}; });
+  if(L.n>0) navBtn(...P(1),'◀',()=>{ G.modal={type:'confirm',msg:'Quay lại màn trước?',act:()=>startLevel(L.n-1)}; });
+  navBtn(...P(L.n>0?2:1),'☰',()=>{ G.modal={type:'select'}; }); }
+function drawModal(){ const M=G.modal; G.btns=[]; ctx.fillStyle='rgba(30,14,4,.6)'; ctx.fillRect(0,0,W,H);
+  if(M.type==='confirm'){ panel(250,210,460,220,24,C.cream,C.border,4); spr('ba_point',330,300,110); T(M.msg,560,300,24,C.ink,'center',800);
+    T('Số lỗi của màn sẽ được tính lại.',560,332,16,C.brown,'center',600);
+    button(420,358,140,52,'ĐỒNG Ý',()=>{ const a=M.act; G.modal=null; a(); }); button(580,358,110,52,'HUỶ',()=>{ G.modal=null; },['#ffb36b','#e8601c']); return; }
+  panel(210,60,540,520,24,C.cream,C.border,4); TS('CHỌN MÀN',480,112,34,'#ff8a1e','center',800,'#6b2a08');
+  SHORT.forEach((t,i)=>{ const x=240+(i%2)*250, y=140+((i/2)|0)*78; panel(x,y,230,62,16,'#ffe9c4',C.orange,2.5); T(t,x+115,y+39,19,C.ink,'center',700);
+    G.btns.push({x,y,w:230,h:62,act:()=>{ G.modal=null; G.mistakes[i]=0; startLevel(i); }}); });
+  button(290,470,180,52,'TRANG ĐẦU',()=>{ G.modal=null; G.scene='title'; },['#ffb36b','#e8601c']); button(490,470,180,52,'ĐÓNG',()=>{ G.modal=null; }); }
+function drawFinal(){
+  full('final'); ctx.fillStyle='rgba(30,14,4,.45)'; ctx.fillRect(0,0,W,H);
+  panel(250,30,460,600,26,C.cream,C.border,5);
+  TS('Đầu bếp tí hon!',480,96,40,'#ff8a1e','center',800,'#6b2a08'); T('Tô mì Quảng của em đã sẵn sàng',480,126,19,C.brown,'center',700);
+  let total=0;
+  for(let i=0;i<8;i++){ const y=160+i*44, st=stars(i); total+=st; if(i%2===0) panel(274,y-4,412,40,10,'#ffe9c4');
+    T(SHORT[i],290,y+23,19,C.ink,'left',700); for(let k=0;k<3;k++) star(590+k*32,y+16,12,k<st); }
+  T('Tổng: '+total+' / 24 sao',290,522,22,C.ink,'left',800);
+  T(total>=22?'Xuất sắc!':total>=16?'Giỏi lắm!':'Chơi lại nhé!',670,522,20,'#c2410c','right',800);
+  const ov=Object.keys(G.over||{}); const nm={muoi:'muối',hatnem:'hạt nêm',duong:'đường phèn',nuocmam:'nước mắm'};
+  const cm=ov.length? 'Bà nhận xét: Nước dùng bị '+(ov.some(k=>k!=='duong')?'mặn':'')+(ov.some(k=>k!=='duong')&&ov.includes('duong')?' và ':'')+(ov.includes('duong')?'ngọt quá':'')+' vì nêm thừa '+ov.map(k=>nm[k]).join(', ')+'. Lần sau nhớ nêm mỗi thứ một lần, nếm thử rồi mới thêm nhé!' : 'Bà nhận xét: Nước dùng nêm nếm vừa vị, giỏi lắm!';
+  wrap(cm,400,15,700).slice(0,3).forEach((ln,i)=>T(ln,290,538+i*17,15,ov.length?'#b3261e':'#2f7d1f','left',700));
+  button(350,592,260,46,'TIẾP TỤC ▶',()=>{ G.scene='info'; G.parts=[]; });
+}
+function drawPlay(){
+  const L=G.level;
+  ctx.save(); if(G.shake>0) ctx.translate(rand(-4,4),rand(-4,4));
+  if(L.shownBg!==L.bg){ L.fromBg=L.shownBg; L.shownBg=L.bg; L.fadeT=0; }
+  full(L.bg); if(L.fromBg&&L.fadeT<.45){ ctx.save(); ctx.globalAlpha=1-L.fadeT/.45; full(L.fromBg); ctx.restore(); }
+  L.under&&L.under(L);
+  for(const it of L.items){ if(!it.vis||it.ghost||G.drag?.it===it) continue;
+    if(L.drawItem&&L.drawItem(L,it)) continue;
+    if(it.hand){ spr(it.img,it.x,it.y,it.w); continue; }
+    const h=sh(it.img,it.w); if((it.alpha??1)>.6) shadow(it.x,it.y+h*.4,it.w*.4,h*.08);
+    if(it.filter){ ctx.save(); ctx.filter=it.filter; spr(it.img,it.x,it.y,it.w,{alpha:it.alpha}); ctx.restore(); } else spr(it.img,it.x,it.y,it.w,{alpha:it.alpha}); }
+  L.over&&L.over(L);
+  stepUnder(L);
+  const s=cur(L);
+  for(const it of L.items){ if(G.card||G.drag?.it===it||!it.label) continue; if(!it.vis&&!it.ghost) continue;
+    if(it.ghost && !(s&&s.type==='drop'&&s.need.includes(it.id)&&!s.got.has(it.id))) continue;
+    const b=itemBox(it); if(L.hoverLabels&&!inZ(b,G.ptr)) continue; if(L.si>=it.lock||it.ghost) tag(it.label,b.x+b.w/2,it.ghost?b.y+b.h-6:b.y+b.h+12); }
+  if(G.flash&&ready(G.flash.img)){ const f=G.flash, a=f.t<.15?f.t/.15:f.t>.6?Math.max(0,1-(f.t-.6)/.3):1; spr(f.img,f.x,f.y-f.t*10,f.w,{alpha:a}); }
+  (G.fly||[]).forEach(f=>{ const e=Math.min(1,f.t/.6); spr(f.img,lerp(f.x0,f.x1,e),lerp(f.y0,f.y1,e)-Math.sin(e*Math.PI)*90,f.w*(1.3-.3*e),{rot:e*2}); });
+  stepOver(L); drawParts();
+  ctx.restore();
+  if(!G.card){ if(!(L.hideUI&&L.hideUI(L))){ drawHUD(L); drawBubble(L); } drawToasts(L); }
+}
+function render(){
+  G.btns=[]; ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  if(G.scene==='loading') drawLoading();
+  else if(G.scene==='title') drawTitle();
+  else if(G.scene==='final') drawFinal();
+  else if(G.scene==='info'){ full('final'); drawInfo(G.level); }
+  else { drawPlay(); if(G.card){ G.btns=[]; if(G.card.type==='intro') drawIntro(G.level); else if(G.card.type==='info') drawInfo(G.level); else drawDone(G.level); } drawNav(); }
+  if(G.modal) drawModal();
+  drawParts && G.scene!=='play' && drawParts();
+  drawCursor(G.scene==='play'?G.level:null);
+  if(G.scene!=='loading') drawSound();
+}
+let last=performance.now();
+function loop(now){ const dt=Math.min(.05,(now-last)/1000); last=now; G.t+=dt; update(dt); render(); updateLoops(); requestAnimationFrame(loop); }
+G.fontsOK=false; const fok=()=>{ G.fontsOK=true; };
+if(document.fonts&&document.fonts.load){ Promise.all([document.fonts.load('800 20px "Baloo 2"','Mì Quảng ơ ư'),document.fonts.load('700 20px "Baloo 2"','Đầu bếp')]).then(fok,fok); setTimeout(fok,2500); } else fok();
+requestAnimationFrame(loop);
+window.__G=G; window.__start=startLevel;
+})();
+</script>
+
+</body>
+</html>
